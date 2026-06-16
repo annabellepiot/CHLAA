@@ -1,0 +1,8 @@
+name,value,unit,description
+cost_per_vaccine_dose,2.0,USD_per_dose,Vaccine delivery cost per administered dose
+cost_per_orc_treatment,10.0,USD_per_case,Cost per treated case in ORC
+cost_per_ctc_treatment,80.0,USD_per_case,Cost per treated case in CTC
+cost_chlorination_per_person_day,0.02,USD_per_person_day,Chlorination cost per person-day
+cost_hygiene_per_person_day,0.03,USD_per_person_day,Hygiene promotion cost per person-day
+cost_latrine_per_person_day,0.01,USD_per_person_day,Latrine intervention cost per person-day
+cost_cati_per_person_day,0.05,USD_per_person_day,CATI intervention cost per person-day

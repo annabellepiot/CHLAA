@@ -1,0 +1,203 @@
+---
+title: "Scenario Workflow"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Scenario Workflow}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+## Starting From The Kirotshe Fit
+
+Scenario analysis should start from a model that can reproduce the outbreak we
+are using as the baseline. The fitting vignette saves the stochastic pMCMC fit
+for Kirotshe as package example data, so here we read that object rather than
+refitting the model.
+
+```{r}
+library(chlaa)
+library(ggplot2)
+library(dplyr)
+
+fit_obj <- readRDS(system.file(
+  "extdata", "kirotshe_particle_fit.rds",
+  package = "chlaa",
+  mustWork = TRUE
+))
+
+fit <- fit_obj$fit
+base_pars <- fit_obj$pars
+observed <- fit_obj$observed
+burnin <- fit_obj$burnin
+
+pars_fit <- chlaa_update_from_fit(
+  fit = fit,
+  pars = base_pars,
+  draw = "median",
+  burnin = burnin
+)
+```
+
+The posterior predictive check shows the fitted distribution for weekly
+reported cases. The points are the observed Kirotshe data; the ribbons and line
+come from posterior draws.
+
+```{r}
+fit_fc <- chlaa_forecast_from_fit(
+  fit = fit,
+  pars = base_pars,
+  time = observed$time,
+  vars = "inc_symptoms_weekly",
+  include_cases = TRUE,
+  obs_interval = 7,
+  obs_model = "nbinom",
+  n_draws = 80,
+  burnin = burnin,
+  seed = 11,
+  dt = 1
+)
+
+chlaa_plot_forecast(
+  fit_fc,
+  var = "cases",
+  data = observed,
+  data_y = "cases"
+)
+```
+
+## Counterfactual Scenarios
+
+The baseline scenario is the fitted outbreak with the recorded intervention
+timings. We compare it with one no-intervention counterfactual and two
+anticipatory-action examples. The AA examples move WASH and care earlier, and
+one adds a single-dose vaccination campaign.
+
+```{r}
+horizon <- max(observed$time) + 182
+scenario_time <- seq(7, horizon, by = 7)
+trigger_time <- min(observed$time[observed$cases >= 50])
+response_end <- horizon + 1
+campaign_days <- 28
+vaccine_doses <- floor(0.20 * pars_fit$N)
+
+no_intervention <- list(
+  chlor_start = 0, chlor_end = 0, chlor_effect = 0,
+  hyg_start = 0, hyg_end = 0, hyg_effect = 0,
+  lat_start = 0, lat_end = 0, lat_effect = 0,
+  cati_start = 0, cati_end = 0, cati_effect = 0,
+  orc_start = 0, orc_end = 0, orc_capacity = 0,
+  ctc_start = 0, ctc_end = 0, ctc_capacity = 0,
+  vax1_start = 0, vax1_end = 0, vax1_doses_per_day = 0, vax1_total_doses = 0,
+  vax2_start = 0, vax2_end = 0, vax2_doses_per_day = 0, vax2_total_doses = 0
+)
+
+aa_response <- list(
+  chlor_start = trigger_time, chlor_end = response_end, chlor_effect = pars_fit$chlor_effect,
+  hyg_start = trigger_time, hyg_end = response_end, hyg_effect = pars_fit$hyg_effect,
+  lat_start = trigger_time, lat_end = response_end, lat_effect = max(pars_fit$lat_effect, 0.10),
+  cati_start = trigger_time, cati_end = response_end, cati_effect = pars_fit$cati_effect,
+  orc_start = trigger_time, orc_end = response_end, orc_capacity = pars_fit$orc_capacity,
+  ctc_start = trigger_time, ctc_end = response_end, ctc_capacity = pars_fit$ctc_capacity,
+  vax1_start = 0, vax1_end = 0, vax1_doses_per_day = 0, vax1_total_doses = 0,
+  vax2_start = 0, vax2_end = 0, vax2_doses_per_day = 0, vax2_total_doses = 0
+)
+
+aa_vaccination <- modifyList(aa_response, list(
+  vax1_start = trigger_time + 14,
+  vax1_end = trigger_time + 14 + campaign_days,
+  vax1_total_doses = vaccine_doses,
+  vax1_doses_per_day = vaccine_doses / campaign_days
+))
+
+scenarios <- list(
+  chlaa_scenario("no_interventions", no_intervention),
+  chlaa_scenario("aa_response", aa_response),
+  chlaa_scenario("aa_response_plus_vaccine", aa_vaccination)
+)
+
+vapply(scenarios, `[[`, character(1), "name")
+```
+
+## Posterior Scenario Forecasts
+
+`chlaa_forecast_scenarios_from_fit()` uses the same posterior draws for each
+scenario, then reports absolute forecasts and paired differences against the
+baseline. That pairing matters because it removes some Monte Carlo noise from
+scenario differences.
+
+```{r}
+scenario_fc <- chlaa_forecast_scenarios_from_fit(
+  fit = fit,
+  pars = base_pars,
+  scenarios = scenarios,
+  baseline_name = "fitted_response",
+  time = scenario_time,
+  vars = c("inc_symptoms_weekly", "cum_symptoms", "cum_deaths"),
+  include_cases = TRUE,
+  obs_interval = 7,
+  n_draws = 60,
+  burnin = burnin,
+  seed = 12,
+  dt = 1
+)
+```
+
+```{r}
+chlaa_plot_scenario_forecasts(
+  scenario_fc,
+  var = "cases",
+  type = "absolute",
+  data = observed,
+  data_y = "cases"
+)
+```
+
+```{r}
+chlaa_plot_scenario_forecasts(
+  scenario_fc,
+  var = "cum_deaths",
+  type = "difference",
+  include_baseline = FALSE
+)
+```
+
+## Decision Summary
+
+For compact decision tables we simulate the same scenarios using the posterior
+median parameter set. This is faster and easier to inspect, while the forecast
+plots above show posterior uncertainty.
+
+```{r}
+scenario_runs <- chlaa_run_scenarios(
+  pars = pars_fit,
+  scenarios = c(list(chlaa_scenario("fitted_response", list())), scenarios),
+  time = scenario_time,
+  n_particles = 50,
+  dt = 1,
+  seed = 13
+)
+
+chlaa_scenario_summary(
+  scenario_runs,
+  baseline = "fitted_response",
+  incidence_var = "inc_symptoms_weekly"
+)
+```
+
+```{r}
+chlaa_compare_scenarios(
+  scenario_runs,
+  baseline = "fitted_response",
+  include_econ = TRUE,
+  wtp = 1500
+)
+```
+
+The no-intervention scenario is useful for estimating how much the recorded
+response may have changed the outbreak. The AA scenarios ask a different
+question: what changes if similar response levers are triggered earlier, with
+or without vaccination.

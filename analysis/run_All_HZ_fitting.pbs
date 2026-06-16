@@ -1,0 +1,11 @@
+#!/bin/bash
+#PBS -l walltime=48:00:00
+#PBS -l select=1:ncpus=8:mem=32gb
+#PBS -N chlaa_fit
+#PBS -o /rds/general/user/acp25/home/MIMIC/Clean_data/CHLAA/output/chlaa_fit.out
+#PBS -e /rds/general/user/acp25/home/MIMIC/Clean_data/CHLAA/output/chlaa_fit.err
+
+eval "$(~/miniforge3/bin/conda shell.bash hook)"
+conda activate Renv
+
+Rscript /rds/general/user/acp25/home/MIMIC/Clean_data/CHLAA/chlaa/analysis/All_HZ_fitting.r

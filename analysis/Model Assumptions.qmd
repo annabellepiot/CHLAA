@@ -1,0 +1,499 @@
+---
+title: "Model Assumptions"
+author: "acp25"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    theme: cosmo
+    code-fold: true
+    embed-resources: true
+---
+
+## Purpose
+
+This document audits the `chlaa` R package implementation against the reference paper and its supplementary materials:
+
+> Loo PS, Rajah JK, Herrera De Leon HJ, Kopainsky B, Milano L (2025). "A simulation-based policy analysis of anticipatory action for cholera outbreaks, Democratic Republic of the Congo." *Bull World Health Organ* 103:607–618. doi:10.2471/BLT.25.293226
+
+The supplementary materials (`.docx`) contain the complete Stella model documentation with all equations, stocks, flows, and parameter values. These are the primary source for structural comparison.
+
+The goal is to confirm what is **faithfully reproduced**, what has been **deliberately adapted**, and what remains **uncertain or requiring further verification**.
+
+------------------------------------------------------------------------
+
+## 1. Model Architecture
+
+### 1.1 Paper description
+
+The paper uses a **system dynamics** (continuous, deterministic) SIRS-type model built in **Stella Architect v3.4.1**. It uses **Euler integration** with a time step of **dt = 0.25 days** over a 3-year period (Jan 2022 – Jan 2025). The population is not age- or sex-stratified.
+
+The model has a rich compartmental structure including:
+
+- **Latent compartment** (`recently_infected_population`) with `average_incubation_time = 3` days
+- **Asymptomatic pathway**: `ratio_of_asymptomatic = 0.75`; the `asymptomatic_population` is an explicit stock with `average_duration_of_illness_asymptomatic = 7` days
+- **Mild/severe severity split**: `normal_ratio_of_severe_disease = 0.30`; separate `mildly_infected_population` and `severe_infected_population` stocks
+- **Treated/untreated distinction**: separate stocks for `treated_mildly_infected_population`, `treated_severe_infected_population`, `untreated_mildly_infected_population`, `untreated_severe_infected_population`
+- **Separate recovered populations**: `recovered_asymptomatic_population`, `recovered_immune_treated_population`, `recovered_immune_untreated_population`
+- **Immunity waning**: asymptomatic immunity 280 days (≈6 months in paper text); symptomatic immunity 1095 days (3 years)
+- **Single vaccinated pool** with `vaccine_effectiveness = 0.76`, protection duration 180 days (1-dose) or 1095 days (2-dose)
+
+Transmission is **exclusively indirect** (waterborne): *"Our model only incorporates indirect infection through contaminated water"* (Supplementary §1.1.1). The "contact rate" refers to contact with contaminated water, not person-to-person contact.
+
+### 1.2 `chlaa` implementation
+
+The package uses a **discrete-time stochastic** compartmental model compiled via **odin2/dust2**. Updates use **binomial draws** for integer-valued compartments, with a continuous environmental contamination state `C`. The time step is also **dt = 0.25**.
+
+
+------------------------------------------------------------------------
+
+## 2. Compartmental Structure
+
+### 2.1 Comparison table
+
+The paper's supplementary materials reveal that **most** of the compartmental structure in `chlaa` (latent, asymptomatic, mild/severe split) **already exists in the paper**. The key adaptations are in how compartments are grouped and how some paper features are simplified.
+
+| Concept | Paper (Stella model) | `chlaa` (odin model) | Status |
+|---|---|---|---|
+| Susceptible | `susceptible_population` | `S` | **Faithful** |
+| Latent/incubation | `recently_infected_population` (incubation 3 days) | `E` (incubation 4.845 days) | **Faithful** (parameter recalibrated) |
+| Asymptomatic | `asymptomatic_population` (75%, duration 7 days) | `A` (75%, duration 5 days) | **Faithful** (parameter recalibrated) |
+| Mild symptomatic (pre-triage) | `mildly_infected_population` | `M` | **Faithful** |
+| Severe symptomatic (pre-triage) | `severe_infected_population` (30% of symptomatic) | `Sev` (30% of symptomatic) | **Faithful** |
+| Mild untreated | `untreated_mildly_infected_population` | `Mu` | **Faithful** |
+| Mild treated (ORC) | `treated_mildly_infected_population` | `Mt` | **Faithful** |
+| Severe untreated | `untreated_severe_infected_population` | `Sevu` | **Faithful** |
+| Severe treated (CTC) | `treated_severe_infected_population` | `Sevt` | **Faithful** |
+| Recovered (asymptomatic) | `recovered_asymptomatic_population` (280 days) | `Ra` (odin default: 180 days) | **Faithful** (parameter discrepancy) |
+| Recovered (treated sympt.) | `recovered_immune_treated_population` (1095 days) | Merged into `Rs` | **Simplified** |
+| Recovered (untreated sympt.) | `recovered_immune_untreated_population` (1095 days) | Merged into `Rs` | **Simplified** |
+| Vaccinated | Single `vaccinated_population` (effectiveness 0.76) | Dose-stratified `V1` (0.4), `V2` (0.7) | **Adapted** |
+| Deaths (treated) | `treated_cholera_death` | `Dt` | **Faithful** |
+| Deaths (untreated) | `untreated_cholera_death` | `Du` | **Faithful** |
+| Environmental contamination | SMTHN(fraction_of_infected, time_to_contaminate, 3) | Explicit continuous state `C` with input/output ODE | **Adapted** (simplified dynamics) |
+| CATI sub-model | 5 dedicated stocks + testing flows | Simple transmission multiplier (`cati_effect`) | **Heavily simplified** |
+| Population with clean water | `population_access_water_system` (stock-based) | `chlor_effect` multiplier on transmission | **Heavily simplified** |
+| Population with hygiene kits | `population_access_hygiene_kits` (stock-based) | `hyg_effect` multiplier on transmission | **Heavily simplified** |
+| Latrine sufficiency | Stock-based construction + non-linear effect | `lat_effect` multiplier on shedding | **Heavily simplified** |
+| ORC/CTC capacity | Dynamic goal-seeking with strain effects | Fixed capacity per day | **Simplified** |
+
+### 2.2 Key structural differences
+
+#### 2.2.1 Compartments already in the paper (NOT new to `chlaa`)
+
+The following features were incorrectly attributed as `chlaa` innovations in earlier analysis. They are **present in the paper's Stella model**:
+
+1. **Latent compartment**: The paper has `recently_infected_population` with `average_incubation_time = 3` days. `chlaa` uses `E` with recalibrated `incubation_time = 4.845` days.
+
+2. **Asymptomatic pathway**: The paper explicitly models 75% asymptomatic infections (`ratio_of_asymptomatic = 0.75`) with a separate `asymptomatic_population` stock and `average_duration_of_illness_asymptomatic = 7` days. `chlaa` uses `prop_asym = 0.75` and `duration_asym = 5.0` days.
+
+3. **Mild/severe split**: The paper has `normal_ratio_of_severe_disease = 0.30` with separate mild and severe stocks. `chlaa` uses `p_progress_severe = 0.30`.
+
+4. **Separate recovered populations**: The paper distinguishes `recovered_asymptomatic_population`, `recovered_immune_treated_population`, and `recovered_immune_untreated_population`. `chlaa` merges the latter two into `Rs` (a minor simplification).
+
+#### 2.2.2 Genuine structural adaptations in `chlaa`
+
+1. **Stochastic discrete-time**: Paper uses deterministic continuous (Euler); `chlaa` uses binomial draws — a methodological upgrade.
+
+2. **Dual-pathway transmission**: The paper uses **only indirect** (waterborne) transmission. `chlaa` adds an explicit **person-to-person** component:
+   $$\lambda = \text{trans\_mult} \times \left( \underbrace{\text{contact\_rate} \times \text{trans\_prob} \times \frac{I_{\text{eff}}}{N}}_{\text{person-to-person (NEW)}} + \underbrace{\text{trans\_prob} \times \frac{C}{C + K}}_{\text{environmental}} \right)$$
+   The paper's `contact_rate_with_contaminated_water = 6.204` refers to contact with water, not person-to-person contact.
+
+3. **Environmental contamination dynamics**: The paper uses a third-order smooth delay (SMTHN) to model the fraction of contaminated water. `chlaa` replaces this with a simpler continuous ODE:
+   $$\frac{dC}{dt} = \frac{\text{shed\_index}}{\text{time\_to\_contaminate}} - \frac{C}{\text{water\_clearance\_time}}$$
+   The paper's approach normalises shedding against a `reference_CFU_cause_infection = 10^7` to produce a dimensionless "fraction of infected" which is then smoothed. `chlaa` instead uses a scaling factor (`contam_scale = 10^{10}`) and a half-saturation dose-response.
+
+4. **Dose-stratified vaccination**: The paper uses a single `vaccinated_population` with `vaccine_effectiveness = 0.76` and switches between 1-dose (180 days) and 2-dose (1095 days) protection across scenario runs. `chlaa` implements `V1` and `V2` compartments with separate efficacies (`ve_1 = 0.4`, `ve_2 = 0.7`) allowing both regimens within a single model run.
+
+5. **Simplified WASH interventions**: The paper models clean water and hygiene kit distribution as **stock-based interventions** — susceptible people flow into protected stocks (`population_access_water_system`, `population_access_hygiene_kits`) that reduce their contact rate by 70%. `chlaa` replaces this with simple multiplicative effect parameters (`chlor_effect`, `hyg_effect`) applied as `trans_mult = 1 - sum(active effects)`.
+
+6. **Simplified CATI**: The paper has a complex CATI sub-model with 5 dedicated stocks (`CATI_recently_infected_population`, `CATI_asymptomatic`, `CATI_mildly_infected_population`, `CATI_severely_infected_population`, `CATI_targeted_population`) and testing flows that actively find and redirect infected individuals. `chlaa` reduces this to a single `cati_effect` transmission multiplier.
+
+7. **Simplified ORC/CTC capacity**: The paper uses dynamic goal-seeking capacity building with construction delays (`time_to_build_ORC = 30` days) and **strain effects** — when facilities are overloaded, care quality drops (increasing progression from mild to severe) and fatality rates rise through non-linear functions. `chlaa` uses fixed capacity per day with no strain effects.
+
+8. **Simplified latrine intervention**: The paper models latrines with stock-based construction, a `latrine_sufficiency` ratio, and a non-linear effect on contamination. `chlaa` uses a simple `lat_effect` shedding multiplier.
+
+9. **Negative binomial observation model** for formal data fitting (entirely new).
+
+10. **Health economics module** with costs and DALYs (entirely new).
+
+------------------------------------------------------------------------
+
+## 3. Parameter Audit
+
+### 3.1 Supplementary base values vs `chlaa` defaults
+
+The supplementary materials document explicit base values for all model parameters. The main paper's Table 1 lists 10 parameters varied ±15% in sensitivity analysis. Critically, **the midpoints of Table 1 ranges differ from the supplementary base values**, suggesting the model was recalibrated between versions.
+
+```{r}
+#| label: param-supplementary-vs-chlaa
+#| echo: false
+comparison <- data.frame(
+    Parameter = c(
+        "Contact rate",
+        "Transmission probability",
+        "Incubation time",
+        "Duration asymptomatic illness",
+        "Duration symptomatic illness",
+        "Shedding: asymptomatic",
+        "Shedding: mildly infected",
+        "Shedding: severely infected",
+        "Ratio of severe disease",
+        "Ratio asymptomatic",
+        "Asymptomatic immunity",
+        "Symptomatic immunity",
+        "Time to contaminate water",
+        "Bacteria decay / clearance",
+        "Fraction mild seeking care",
+        "Fraction severe seeking care",
+        "Treated fatality fraction",
+        "Untreated fatality fraction",
+        "Vaccine effectiveness",
+        "1-dose protection",
+        "2-dose protection"
+    ),
+    Supplementary = c(
+        "6.204", "0.1278", "3 days", "7 days", "14 days",
+        "100,000 CFU", "10,000,000 CFU", "30,000,000 CFU",
+        "0.30", "0.75", "280 days", "1095 days", "14 days",
+        "0.1 (10% decay)", "0.10", "0.20",
+        "0.002", "0.005", "0.76", "180 days", "1095 days"
+    ),
+    Table1_Midpoint = c(
+        "10.01", "0.055", "4.845 days", "-", "14.48 days",
+        "90,690 CFU", "9,500,500 CFU", "32,945,000 CFU",
+        "-", "-", "-", "-", "19.075 days",
+        "-", "-", "0.68",
+        "-", "-", "-", "-", "-"
+    ),
+    chlaa_odin = c(
+        "10.01", "0.055", "4.845 days", "5.0 days", "14.48 days",
+        "90,690 CFU", "9,500,500 CFU", "32,945,000 CFU",
+        "0.30", "0.75", "180 days", "1095 days", "19.075 days",
+        "30 days (clearance)", "0.30", "0.68",
+        "0.0021", "0.50", "ve_1=0.4, ve_2=0.7", "180 days", "1095 days"
+    ),
+    chlaa_paramsR = c(
+        "10.01", "0.127", "4.845 days", "5.0 days", "14.48 days",
+        "90,690 CFU", "9,500,500 CFU", "32,945,000 CFU",
+        "0.30", "0.75", "280 days", "1095 days", "19.075 days",
+        "30 days (clearance)", "0.10", "0.20",
+        "0.0021", "0.50", "ve_1=0.4, ve_2=0.7", "180 days", "1095 days"
+    ),
+    stringsAsFactors = FALSE
+)
+
+knitr::kable(comparison,
+    caption = "Parameter comparison: Supplementary base values vs Main paper Table 1 midpoints vs chlaa defaults",
+    col.names = c(
+        "Parameter", "Supplementary base",
+        "Table 1 midpoint", "chlaa odin default",
+        "chlaa parameters.R"
+    )
+)
+```
+
+### 3.2 Key parameter findings
+
+1. **Table 1 midpoints match chlaa odin defaults**: For all 10 sensitivity parameters in the main paper's Table 1, the midpoints of the ±15% ranges exactly match the `chlaa` odin model defaults. This suggests the model was recalibrated after the supplementary was written, and `chlaa` follows the final (published) calibration.
+
+2. **Supplementary base values match `parameters.R` for some parameters**: `parameters.R` has `trans_prob = 0.127` (matching supplementary's 0.1278), `seek_mild = 0.10` (matching supplementary), `seek_severe = 0.20` (matching supplementary), and `immunity_asym = 280` (matching supplementary). This creates an internal inconsistency within `chlaa` — the odin model defaults follow the published Table 1, while `parameters.R` defaults follow the earlier supplementary values.
+
+3. **Critical discrepancy — untreated fatality fraction**: The supplementary gives `untreated_fatality_fraction = 0.005` (0.5% CFR). `chlaa` uses `fatality_untreated = 0.50` (50% CFR) — a **100× difference**. The paper text states "untreated cholera can result in mortality rate as high as 70%", so the chlaa value (50%) is consistent with the paper's upper-bound statement but dramatically higher than the supplementary's calibrated base value. This is the most consequential parameter discrepancy and needs explicit justification.
+
+4. **Environmental dynamics reparameterisation**: The paper uses `bacteria_decay = 0.1` (10% decay per day) and `time_to_contaminate_water = 14` days. `chlaa` uses `water_clearance_time = 30` days and `time_to_contaminate = 19.075` days. The environmental dynamics are structurally different (SMTHN vs simple ODE), so direct parameter comparison is not straightforward.
+
+5. **Care-seeking probabilities diverge between chlaa's two sources**: The odin model uses `seek_mild = 0.30`, `seek_severe = 0.68` (matching Table 1); `parameters.R` uses `seek_mild = 0.10`, `seek_severe = 0.20` (matching supplementary). Which source is authoritative needs to be resolved.
+
+### 3.3 Internal discrepancies: `parameters.R` vs `cholera_model.R`
+
+```{r}
+#| label: default-discrepancies
+#| echo: false
+disc <- data.frame(
+    Parameter = c("trans_prob", "seek_mild", "seek_severe", "immunity_asym"),
+    parameters.R = c(0.127, 0.10, 0.20, 280),
+    cholera_model.R = c(0.055, 0.30, 0.68, 180),
+    Suppl_Base = c(0.1278, 0.10, 0.20, 280),
+    Table1_Midpoint = c(0.055, "N/A", 0.68, "N/A"),
+    stringsAsFactors = FALSE
+)
+
+knitr::kable(disc,
+    caption = "Internal defaults discrepancy: parameters.R follows supplementary, odin follows Table 1"
+)
+```
+
+**Interpretation**: `parameters.R` appears to derive from an earlier version of the model (supplementary base values), while the odin model defaults follow the final published calibration (Table 1 midpoints). These need to be reconciled — users calling `chlaa_parameters()` will get different defaults from those baked into the odin model.
+
+------------------------------------------------------------------------
+
+## 4. Transmission Dynamics
+
+### 4.1 Paper: indirect only
+
+The supplementary explicitly states: *"Our model only incorporates indirect infection through contaminated water"* (§1.1.1).
+
+The paper's infection rate is:
+
+$$\text{infections} = S \times \underbrace{\text{fraction\_of\_infected\_contaminate\_water} \times \text{contact\_rate} \times \text{transmission\_probability}}_{\text{indicated\_infection\_rate}}$$
+
+where `fraction_of_infected_contaminate_water` is a **third-order smooth delay** (`SMTHN`) of the normalised bacterial shedding. The normalisation divides total shedding by `reference_CFU_cause_infection = 10^7` to produce a dimensionless "fraction of infected".
+
+### 4.2 `chlaa`: dual-pathway
+
+`chlaa` adds a **person-to-person** transmission term alongside the environmental term:
+
+$$\lambda = \text{trans\_mult} \times \left( \text{contact\_rate} \times \text{trans\_prob} \times \frac{I_{\text{eff}}}{N} + \text{trans\_prob} \times \frac{C}{C + K} \right)$$
+
+**This is a deliberate extension** beyond the paper. In the paper, `contact_rate_with_contaminated_water = 6.204` describes contact with water, not with other people. The `chlaa` model reinterprets this as a general contact rate and adds person-to-person frequency-dependent transmission — standard in cholera literature (Codeco 2001, Tien & Earn 2010) but **not** in the reference paper.
+
+### 4.3 Environmental contamination: SMTHN vs ODE
+
+| Feature | Paper (Stella) | `chlaa` (odin) |
+|---|---|---|
+| Shedding normalisation | Total CFU / `reference_CFU = 10^7` → dimensionless | Total CFU / `contam_scale = 10^{10}` → index |
+| Delay mechanism | SMTHN (3rd-order smooth, `time_to_contaminate = 14` days) | Simple ODE input/output (`time_to_contaminate = 19.075` days) |
+| Decay | `bacteria_decay = 0.1` (10% per day) | `water_clearance_time = 30` days (first-order clearance) |
+| Dose-response | Linear (`fraction × contact_rate × trans_prob`) | Saturating (`C / (C + K)` with `K = 1.0`) |
+| Treated shedding | Treated at CTC/hospital: no environmental shedding | `treated_shed_mult_ctc = 0.0` (CTC), `treated_shed_mult_orc = 0.5` (ORC) |
+| Latrine effect | Non-linear stock-based: `effect_of_latrine_sufficiency_on_contaminated_water` | Simple multiplier: `shed_mult = 1 - lat_active × lat_effect` |
+
+------------------------------------------------------------------------
+
+## 5. Intervention Structure
+
+### 5.1 Interventions: paper vs `chlaa`
+
+| Intervention | Paper (Stella) | `chlaa` (odin) | Faithfulness |
+|---|---|---|---|
+| **Clean water** | Stock-based: `population_access_water_system` with capacity building delays; reduces contact rate by 70% for protected individuals | `chlor_effect` multiplier on `trans_mult` (default 0.20) | **Heavily simplified** |
+| **Hygiene kits** | Stock-based: `population_access_hygiene_kits` with capacity building delays; reduces contact rate by 70% for protected individuals | `hyg_effect` multiplier on `trans_mult` (default 0.20) | **Heavily simplified** |
+| **Latrine construction** | Stock-based construction with `latrine_sufficiency` ratio and non-linear effect function on contamination (`baseline_effect = 1`, `latrine_sufficiency_effect = 0.5`) | `lat_effect` multiplier on `shed_mult` (default 0.10) | **Heavily simplified** |
+| **CTC (severe cases)** | Dynamic capacity via goal-seeking; strain effects on fatality rate and care quality; initial capacity 20 persons | Fixed `ctc_capacity = 100` persons/day | **Simplified** (no strain) |
+| **ORC (mild cases)** | Dynamic capacity via goal-seeking; strain effects on care quality (affects progression from mild→severe); initial capacity 50 persons | Fixed `orc_capacity = 500` persons/day | **Simplified** (no strain) |
+| **CATI** | Complex sub-model with 5 stocks: `CATI_recently_infected`, `CATI_asymptomatic`, `CATI_mildly_infected`, `CATI_severely_infected`, `CATI_targeted`; testing capacity 19,900 over 60 days; diverts infected into intervention pathways | Single `cati_effect` multiplier on `trans_mult` (default 0.10) | **Heavily simplified** |
+| **Vaccination** | Single pool; `vaccine_effectiveness = 0.76`; scenario switch for 1 vs 2 doses; 270,000 doses over 5-day campaign | Dose-stratified `V1`/`V2`; `ve_1 = 0.4`, `ve_2 = 0.7`; flexible campaign scheduling | **Adapted** (more flexible) |
+| **Surveillance** | Modelled with `ratio_of_cases_being_reported = 0.7`; data collection with `normal_time_to_update_system = 14` days delay; affects intervention timing | Implicit via `reporting_rate = 0.2` in observation model | **Simplified** |
+
+### 5.2 Paper's strain effects (absent from `chlaa`)
+
+The paper models service strain through non-linear functions:
+
+- **ORC strain** affects care-seeking rates and quality of care (mild → severe progression increases when ORCs are overloaded)
+- **CTC strain** affects care-seeking and fatality rates (fatality fraction rises from `treated_fatality_fraction = 0.002` towards `service_strain_fatality_fraction = 0.0043` under strain)
+- Both use sigmoidal functions with baseline effect 1.2, maximum strain effect 0.5, and capacity sensitivity exponent 2
+
+`chlaa` omits all strain dynamics, using fixed capacity limits and constant fatality fractions. This is a significant simplification for outbreak scenarios where health system overload is expected.
+
+### 5.3 Anticipatory action trigger
+
+- **Paper**: Trigger at 15 cases/day, set by OCHA, based on real-time surveillance
+- **`chlaa`**: `chlaa_trigger_time_from_sim()` finds first time `inc_symptoms` crosses a user-specified threshold
+- **Status**: Faithful mechanism. The threshold is a user input, appropriate for generalisation.
+
+------------------------------------------------------------------------
+
+## 6. Scenario Structure
+
+### 6.1 Paper scenarios vs `chlaa` defaults
+
+| Paper Scenario | Description | `chlaa` equivalent | Status |
+|---|---|---|---|
+| Scenario 1: Baseline | Existing response (outbreak declaration Dec 2022, vaccination Jan 2023) | `"baseline"` | Faithful |
+| Scenario 2: AA only | AA triggered Oct 2022, immediate WASH + CATI, same vaccination timeline | `"aa_no_vax"` | Faithful |
+| Scenario 3: AA + 1 dose | AA + early vaccination (Nov 2022), 280k doses, 52% coverage, 6-month immunity | `"aa_vax_1dose"` | Faithful |
+| Scenario 4: AA + 2 doses | AA + two-dose regimen, 280k doses to 140k people, 26% coverage, 3-year immunity | `"aa_vax_2dose"` | Faithful |
+| — | — | `"no_intervention"` (counterfactual) | **New** |
+
+### 6.2 Paper-specific values
+
+- **Population**: N = 540,000 (Nyiragongo health zone) — `chlaa` default matches
+- **Vaccine doses**: 270,000 (supplementary) / 280,000 (main paper text) — minor discrepancy
+- **Vaccination campaign**: 5-day campaign, starting day 350 (Jan 2023 in baseline), 40 days after AA trigger in AA scenarios
+- **Simulation period**: Jan 2022 – Jan 2025 (3 years = 1095 days)
+
+------------------------------------------------------------------------
+
+## 7. Health Economics
+
+The paper **does not include health economic analysis**. The `chlaa` package adds a complete health economics module:
+
+- **Costs**: vaccine delivery ($2/dose), ORC treatment ($10/case), CTC treatment ($80/case), WASH per person-day
+- **DALYs**: disability weight 0.188 (GBD moderate diarrhoea), 7-day symptomatic duration, 30 YLL/death
+- **Decision analysis**: CEAC, budget-constrained optimisation
+
+**Status**: Entirely new. Cost parameters are labelled as "illustrative planning assumptions" in the references file.
+
+------------------------------------------------------------------------
+
+## 8. Observation Model
+
+The paper validates against historical data using sensitivity analysis bands and a surveillance sub-model with `ratio_of_cases_being_reported = 0.7`. `chlaa` replaces this with a formal **negative binomial observation model**:
+
+$$\text{cases} \sim \text{NegBin}(\mu = \text{reporting\_rate} \times \text{inc\_symptoms}, \text{size} = \text{obs\_size})$$
+
+with defaults `reporting_rate = 0.2` and `obs_size = 25`.
+
+**Status**: New capability. The paper's reporting rate (0.7) is very different from chlaa's (0.2) — this likely reflects different definitions (paper: fraction of symptomatic cases reaching health facilities and being recorded; chlaa: fraction of all symptomatic cases reported in surveillance data).
+
+------------------------------------------------------------------------
+
+## 9. Summary: Audit Classification
+
+### Faithful to paper
+
+1. Core SIRS compartmental framework with waning immunity
+2. Latent compartment (`E` / `recently_infected_population`)
+3. Asymptomatic pathway (75% of infections) with separate shorter immunity
+4. Mild/severe severity split (30% severe) with separate treatment pathways
+5. Treated/untreated distinction with separate death accounting
+6. ORC (mild) and CTC (severe) care pathways
+7. Key epidemiological parameters aligned to published Table 1 calibration
+8. Vaccination with 180-day (1-dose) and 1095-day (2-dose) immunity
+9. AA trigger mechanism (threshold-based on case counts)
+10. 4-scenario structure (baseline, AA, AA+1dose, AA+2dose)
+11. Time step dt = 0.25
+12. Population size N = 540,000
+
+### Deliberately adapted
+
+1. **Stochastic discrete-time** (binomial draws) instead of deterministic continuous (Euler)
+2. **Person-to-person transmission added** — the paper is purely waterborne
+3. **Environmental contamination simplified** from SMTHN (3rd-order smooth) to simple input/output ODE with half-saturation dose-response
+4. **Dose-stratified vaccination** (`V1`, `V2` with separate efficacies) instead of single pool with effectiveness 0.76
+5. **Merged recovered populations** — paper separates treated/untreated recovered; chlaa merges into `Rs`
+6. **WASH interventions simplified** from stock-based (people flow into protected stocks, 70% contact rate reduction) to simple transmission multipliers (20% reduction each)
+7. **CATI simplified** from complex 5-stock sub-model with testing flows to single transmission multiplier
+8. **ORC/CTC capacity simplified** from dynamic goal-seeking with strain effects to fixed capacity
+9. **Latrine intervention simplified** from stock-based construction with non-linear sufficiency effect to simple shedding multiplier
+10. **ORC partial shedding** (`treated_shed_mult_orc = 0.5`) — paper treats all ORC-treated as reducing contamination but through care-seeking rather than explicit shedding reduction
+11. **Negative binomial observation model** for formal fitting (new)
+12. **Health economics and optimisation module** (new)
+13. **"No intervention" counterfactual scenario** (new)
+
+### Uncertain / requiring verification
+
+1. **`parameters.R` vs odin model defaults**: `trans_prob` (0.127 vs 0.055), `seek_mild` (0.10 vs 0.30), `seek_severe` (0.20 vs 0.68), `immunity_asym` (280 vs 180) — appears to be supplementary vs published calibration; needs reconciliation
+2. **Untreated fatality fraction**: Supplementary = 0.005 (0.5%), chlaa = 0.50 (50%) — 100× difference. Paper text says "as high as 70%"; supplementary base value is much lower. Which is correct for the target context?
+3. **Person-to-person transmission**: Not in the paper at all. What is the intended relative contribution vs environmental? Should `contact_rate` be reinterpreted?
+4. **WASH effect sizes** (20% each for chlor/hygiene, 10% latrine/CATI): Paper uses 70% contact rate reduction for clean water/hygiene kits and a non-linear latrine effect — very different magnitudes
+5. **Additive vs multiplicative intervention effects**: `trans_mult = 1 - sum(effects)` is additive; paper uses stock-based individual-level protection
+6. **Half-saturation dose-response** (`contam_half_sat = 1.0`) and **contam_scale** (`1e10`): Calibration targets? The paper uses a normalised linear dose-response, not saturating
+7. **Water clearance time** (30 days): Paper uses `bacteria_decay = 0.1` (10%/day ≈ 10-day half-life). The 30-day clearance in `chlaa` is substantially slower
+8. **Reporting rate discrepancy**: Paper surveillance model = 0.7; chlaa = 0.2
+9. **Strain effects omission**: The paper's non-linear strain on fatality and care quality is absent — how much does this affect outbreak dynamics when health systems are overloaded?
+10. **Model calibration provenance**: Were the Table 1 parameter values (which differ from supplementary) obtained by fitting to Nyiragongo data? If so, do they implicitly account for structural simplifications?
+
+------------------------------------------------------------------------
+
+## 10. Recommended Actions
+
+### Immediate (before next fitting run)
+
+1. **Reconcile parameter defaults**: Align `parameters.R` with `cholera_model.R`. Decide whether to follow supplementary base values or published Table 1 calibration. Document the decision.
+2. **Investigate untreated fatality fraction**: The 100× discrepancy (0.005 vs 0.50) is consequential. The supplementary value of 0.005 (0.5% CFR) reflects North-Kivu context; chlaa's 0.50 (50%) represents severe untreated cholera at its worst. These have very different implications for intervention impact estimates.
+3. **Document person-to-person pathway**: Clarify in `model_mapping.md` that this is an extension beyond the paper, and assess its contribution to total force of infection.
+
+### Before publication
+
+4. **Review WASH effect magnitudes**: The paper's 70% contact rate reduction for clean water/hygiene is much larger than chlaa's 20% default. Consider whether the simplified multiplier approach can capture similar effect sizes.
+5. **Assess strain effects**: Run sensitivity analysis to determine whether omitting ORC/CTC strain dynamics materially changes conclusions about intervention impact.
+6. **Validate against Nyiragongo data**: Replicate the paper's Fig. 3 historical validation.
+7. **Document economic assumptions**: Current unit costs are illustrative; replace with DRC-specific values.
+
+------------------------------------------------------------------------
+
+## 11. Updated Modelling Assumptions Register
+
+```{r}
+#| label: assumptions-register
+#| echo: false
+register <- data.frame(
+    ID = paste0("A", sprintf("%02d", 1:22)),
+    Assumption = c(
+        "Homogeneous, well-mixed population (no age/sex/spatial structure)",
+        "Stochastic discrete-time dynamics with binomial transitions",
+        "75% of infections are asymptomatic (faithful to paper)",
+        "30% of symptomatic infections progress to severe (faithful to paper)",
+        "Asymptomatic immunity lasts 180 days (odin) or 280 days (parameters.R)",
+        "Symptomatic immunity lasts 3 years (1095 days) — faithful to paper",
+        "Dual-pathway transmission: person-to-person + environmental",
+        "Environmental contamination follows simple input/output ODE (paper uses SMTHN)",
+        "Half-saturation dose-response for environmental transmission (paper is linear)",
+        "Care-seeking: 30% mild, 68% severe (odin) or 10% mild, 20% severe (parameters.R)",
+        "CTC eliminates environmental shedding (treated_shed_mult_ctc = 0)",
+        "ORC reduces environmental shedding by 50% (treated_shed_mult_orc = 0.5)",
+        "Case fatality: 0.21% treated, 50% untreated (paper supplementary: 0.2% treated, 0.5% untreated)",
+        "Fixed ORC/CTC capacity with no strain effects (paper has dynamic capacity and strain)",
+        "WASH interventions modelled as simple multipliers (paper uses stock-based protection)",
+        "WASH default effects: chlor 20%, hygiene 20%, latrine 10%, CATI 10% (paper: 70% contact reduction)",
+        "CATI modelled as transmission multiplier (paper has 5-stock sub-model with testing)",
+        "Vaccine efficacy: 40% (dose 1), 70% (dose 2) — paper: single pool at 76%",
+        "Negative binomial observation model with 20% reporting rate (paper: 70%)",
+        "AA trigger is threshold-based on symptomatic incidence",
+        "No seasonality or environmental forcing",
+        "No population displacement, conflict, or demographic change"
+    ),
+    Source = c(
+        "Paper (explicit simplification)",
+        "Adaptation from paper (paper uses deterministic SD)",
+        "Paper supplementary: ratio_of_asymptomatic = 0.75",
+        "Paper supplementary: normal_ratio_of_severe_disease = 0.30",
+        "Supplementary: 280d; odin default: 180d; paper text: '3 to 12 months'",
+        "Paper: 'immunity typically lasts 3 years'",
+        "Extension: paper is waterborne only (supplementary §1.1.1)",
+        "Adaptation: paper uses SMTHN third-order smooth delay",
+        "Assumption: paper uses linear fraction × contact_rate × trans_prob",
+        "Odin matches Table 1; parameters.R matches supplementary base",
+        "Paper: treated waste disinfected at hospital/CTC",
+        "Assumption: ORC = community-level, less controlled waste management",
+        "Paper suppl: untreated_fatality_fraction = 0.005; chlaa = 0.50 (100× higher)",
+        "Simplification: paper has goal-seeking capacity with strain functions",
+        "Simplification: paper models individual-level stock-based protection",
+        "Paper: 70% contact rate reduction for clean water/hygiene kit recipients",
+        "Simplification: paper's CATI has testing, identification, referral pathways",
+        "Adaptation: enables both regimens in single model run",
+        "New for fitting; paper surveillance reports 70% of cases",
+        "Paper: 15 cases/day threshold set by OCHA",
+        "Paper: 'did not consider seasonal factors'",
+        "Paper: 'did not consider population displacement, conflict'"
+    ),
+    Confidence = c(
+        "High", "High (methodological choice)", "High (matches paper)",
+        "High (matches paper)", "Low (internal discrepancy)",
+        "High", "Medium (standard in cholera lit, but extends paper)",
+        "Medium (different dynamics, needs calibration comparison)",
+        "Low (paper uses linear; calibration implications unclear)",
+        "Low (internal discrepancy; 0.10/0.20 or 0.30/0.68?)",
+        "High", "Low (needs source)",
+        "Low (100× discrepancy with supplementary needs resolution)",
+        "Medium (may underestimate outbreak severity under overload)",
+        "Medium (captures direction but not magnitude of paper's effects)",
+        "Low (magnitudes much smaller than paper's 70%)",
+        "Medium (captures direction; loses CATI's testing/identification mechanism)",
+        "High (improves on paper's scenario-switch approach)",
+        "Low (very different from paper's 70%)",
+        "High",
+        "High (explicit limitation)", "High (explicit limitation)"
+    ),
+    stringsAsFactors = FALSE
+)
+
+knitr::kable(register,
+    caption = "Modelling assumptions register (updated Meeting 4)"
+)
+```
+
+------------------------------------------------------------------------
+
+## 12. Conclusion
+
+
+`chlaa` makes **significant structural simplifications** in three domains:
+
+1. **Interventions**: The paper's complex stock-based WASH interventions (70% contact rate reduction), dynamic capacity building with strain effects, and CATI sub-model are all replaced by simple multipliers or fixed capacities. This is the largest area of divergence.
+
+2. **Transmission**: `chlaa` adds person-to-person transmission (absent from the paper) and simplifies environmental contamination dynamics from a third-order smooth delay to a simple ODE with half-saturation dose-response.
+

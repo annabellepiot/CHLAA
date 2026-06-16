@@ -1,0 +1,52 @@
+# R / RStudio
+.Rproj.user/
+.Rhistory
+.Rapp.history
+.RData
+.RDataTmp
+.Ruserdata
+.Renviron
+
+# R CMD check
+*.Rcheck/
+
+# R build / package outputs
+/*.tar.gz
+/*.Rcheck/
+*-Ex.R
+
+# Package build artifacts
+*.tar.gz
+
+# Compiled code
+*.o
+*.so
+*.dll
+*.dSYM
+
+# Stan / C++ compilation leftovers
+*.cc
+*.hpp
+*.a
+
+# Rendered HTML / PDF outputs
+*.html
+*.pdf
+/docs/
+/inst/doc/
+/vignettes/*.html
+/vignettes/*.pdf
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# local rich runtime (ignored)
+/rich
+/doc/
+/Meta/
+
+# Analysis data (not public)
+analysis/data/

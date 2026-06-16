@@ -1,0 +1,236 @@
+---
+title: "Cases and Deaths by Health Zone"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    theme: cosmo
+    self-contained: true
+  pdf:
+    toc: true
+    toc-depth: 2
+    geometry: margin=2cm
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r setup}
+library(tidyverse)
+
+data_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/CHLAA/chlaa/analysis/data"
+
+# ---- Load IDSR_dataset ----
+combined <- read.csv(file.path(data_dir, "IDSR_dataset.csv"),
+    stringsAsFactors = FALSE
+) %>%
+    mutate(date = as.Date(date))
+
+# ---- Load admin_names for Province + Territory lookup ----
+admin <- read.csv(file.path(data_dir, "admin_names.csv"),
+    stringsAsFactors = FALSE
+)
+
+# Build a lookup: hz -> Province, Territory
+hz_lookup <- admin %>%
+    select(adm1_province, adm2_territory, adm3_hz) %>%
+    distinct(adm3_hz, .keep_all = TRUE)
+
+# ---- Target HZs ----
+target_hzs <- c(
+    "goma", "kirotshe", "kindu", "alunguli", "opala",
+    "bumbu", "kokolo", "ngiri_ngiri", "kingabwa", "limete",
+    "maluku_i", "kiyambi", "kalemie", "nyemba", "kabalo",
+    "kongolo", "nyiragongo"
+)
+
+# ---- Helper: build a nice title from admin_names ----
+get_title <- function(hz_name) {
+    row <- hz_lookup %>% filter(adm3_hz == hz_name)
+    if (nrow(row) == 0) {
+        # Fallback: use the hz name only (no province in IDSR_dataset)
+        hz_label <- tools::toTitleCase(gsub("_", " ", hz_name))
+        return(hz_label)
+    }
+    hz_label <- tools::toTitleCase(gsub("_", " ", hz_name))
+    province <- row$adm1_province[1]
+    paste0(hz_label, " — ", province)
+}
+
+# ---- Helper: make the overlaid barplot ----
+plot_cases_deaths <- function(hz_name) {
+    df <- combined %>%
+        filter(hz == hz_name) %>%
+        select(date, cases, deaths) %>%
+        filter(!is.na(date))
+
+    if (nrow(df) == 0) {
+        return(ggplot() +
+            annotate("text",
+                x = 0.5, y = 0.5,
+                label = paste("No data for", hz_name), size = 5
+            ) +
+            theme_void())
+    }
+
+    title_text <- get_title(hz_name)
+
+    # Pivot to long for easier legend handling
+    df_long <- df %>%
+        pivot_longer(
+            cols = c(cases, deaths),
+            names_to = "measure",
+            values_to = "count"
+        ) %>%
+        mutate(measure = factor(measure,
+            levels = c("cases", "deaths"),
+            labels = c("Cases", "Deaths")
+        ))
+
+    ggplot(df_long, aes(x = date, y = count, fill = measure)) +
+        geom_col(position = "identity", width = 7, alpha = 0.7) +
+        scale_fill_manual(values = c("Cases" = "steelblue", "Deaths" = "firebrick")) +
+        labs(
+            title = title_text,
+            x = NULL,
+            y = "Weekly count",
+            fill = NULL
+        ) +
+        theme_minimal(base_size = 12) +
+        theme(legend.position = "top")
+}
+```
+
+```{r}
+#| results: asis
+for (hz_name in target_hzs) {
+    hz_label <- tools::toTitleCase(gsub("_", " ", hz_name))
+    cat("\n\n## ", hz_label, "\n\n", sep = "")
+    p <- plot_cases_deaths(hz_name)
+    print(p)
+    cat("\n\n")
+}
+```
+
+# Outbreak period (from hz_parameters.csv)
+
+The plots below show cases and deaths restricted to each health zone's
+own date window — from the earliest to the latest date mentioned for
+that HZ in `hz_parameters.csv`.
+
+```{r outbreak-period-setup}
+# ---- Load hz_parameters.csv and derive per-HZ date windows ----
+hz_params_long <- read.csv(file.path(data_dir, "hz_parameters.csv"),
+    stringsAsFactors = FALSE
+)
+
+# Build a lookup: for each HZ, find the min and max date across all its parameters
+hz_date_windows <- hz_params_long %>%
+    mutate(date_val = as.Date(value, format = "%Y-%m-%d")) %>%
+    filter(!is.na(date_val)) %>%
+    group_by(hz) %>%
+    summarise(
+        hz_start = min(date_val),
+        hz_end   = max(date_val),
+        .groups  = "drop"
+    )
+
+# ---- Helper: outbreak-period barplot with per-HZ date window ----
+plot_cases_deaths_outbreak <- function(hz_name) {
+    window <- hz_date_windows %>% filter(hz == hz_name)
+
+    if (nrow(window) == 0) {
+        return(ggplot() +
+            annotate("text",
+                x = 0.5, y = 0.5,
+                label = paste("No date window for", hz_name),
+                size = 5
+            ) +
+            theme_void())
+    }
+
+    hz_start <- window$hz_start
+    hz_end <- window$hz_end
+
+    # Show 3 months before and after the outbreak dates
+    plot_start <- hz_start - 90
+    plot_end   <- hz_end + 90
+
+    df <- combined %>%
+        filter(
+            hz == hz_name,
+            date >= plot_start,
+            date <= plot_end
+        ) %>%
+        select(date, cases, deaths) %>%
+        filter(!is.na(date))
+
+    if (nrow(df) == 0) {
+        return(ggplot() +
+            annotate("text",
+                x = 0.5, y = 0.5,
+                label = paste(
+                    "No data for", hz_name,
+                    "in outbreak period"
+                ),
+                size = 5
+            ) +
+            theme_void())
+    }
+
+    title_text <- get_title(hz_name)
+
+    df_long <- df %>%
+        pivot_longer(
+            cols = c(cases, deaths),
+            names_to = "measure",
+            values_to = "count"
+        ) %>%
+        mutate(measure = factor(measure,
+            levels = c("cases", "deaths"),
+            labels = c("Cases", "Deaths")
+        ))
+
+    ggplot(df_long, aes(x = date, y = count, fill = measure)) +
+        geom_col(position = "identity", width = 7, alpha = 0.7) +
+        geom_vline(xintercept = c(hz_start, hz_end),
+            linetype = "dashed", colour = "grey40", linewidth = 0.5) +
+        scale_fill_manual(values = c(
+            "Cases" = "steelblue",
+            "Deaths" = "firebrick"
+        )) +
+        scale_x_date(
+            date_breaks = "1 month", date_labels = "%Y-%m",
+            limits = c(plot_start, plot_end)
+        ) +
+        labs(
+            title = title_text,
+            subtitle = paste0(
+                "Outbreak period: ",
+                format(hz_start, "%b %Y"), " – ",
+                format(hz_end, "%b %Y"),
+                "  (dashed lines = outbreak window)"
+            ),
+            x = NULL,
+            y = "Weekly count",
+            fill = NULL
+        ) +
+        theme_minimal(base_size = 12) +
+        theme(
+            legend.position = "top",
+            axis.text.x = element_text(angle = 45, hjust = 1)
+        )
+}
+```
+
+```{r}
+#| results: asis
+for (hz_name in target_hzs) {
+    hz_label <- tools::toTitleCase(gsub("_", " ", hz_name))
+    cat("\n\n## ", hz_label, "\n\n", sep = "")
+    p <- plot_cases_deaths_outbreak(hz_name)
+    print(p)
+    cat("\n\n")
+}
+```

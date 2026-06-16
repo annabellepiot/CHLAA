@@ -1,0 +1,50 @@
+Package: chlaa
+Type: Package
+Title: Cholera Outbreak Simulation and Anticipatory Action Modelling
+Version: 0.1.0
+Authors@R: c(
+    person("OJ", "Watson", role = c("aut", "cre"), email = "o.watson15@imperial.ac.uk")
+    )
+Author: OJ Watson [aut, cre]
+Maintainer: OJ Watson <o.watson15@imperial.ac.uk>
+URL: https://github.com/annabellepiot/chlaa, https://annabellepiot.github.io/chlaa/
+BugReports: https://github.com/annabellepiot/chlaa/issues
+Description: Stochastic cholera outbreak model implemented in odin2 with a dust2 backend.
+    Provides tools for fitting to outbreak data, simulating counterfactual intervention
+    scenarios (vaccination, case management, and WASH), and evaluating outcomes including
+    cost-effectiveness and budget allocation.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Depends: R (>= 4.1.0)
+LinkingTo:
+    cpp11,
+    dust2,
+    monty
+Suggests:
+    odin2,
+    testthat (>= 3.0.0),
+    knitr,
+    rmarkdown,
+    pkgdown,
+    GGally,
+    MASS,
+    coda,
+    purrr,
+    readr
+Imports:
+    dust2,
+    dplyr,
+    tidyr,
+    ggplot2,
+    monty,
+    tibble
+Config/testthat/edition: 3
+Remotes:
+    mrc-ide/odin2,
+    mrc-ide/dust2,
+    mrc-ide/monty,
+    mrc-ide/mcstate,
+    mrc-ide/odin.dust,
+    mrc-ide/squire
+RoxygenNote: 7.3.3
+VignetteBuilder: knitr

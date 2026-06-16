@@ -1,0 +1,4 @@
+name,value,unit,description
+dw_symptomatic,0.188,weight,Disability weight for symptomatic cholera episode
+duration_symptomatic_days,7.0,days,Average duration of symptomatic episode
+yll_per_death,30.0,years,Years of life lost per cholera death

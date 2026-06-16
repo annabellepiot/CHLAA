@@ -1,0 +1,23 @@
+url: https://annabellepiot.github.io/chlaa/
+template:
+  bootstrap: 5
+llm-docs: false
+
+home:
+  title: chlaa
+  description: Cholera outbreak simulation, fitting, intervention scenarios, and health economics.
+
+navbar:
+  structure:
+    left: [intro, reference, articles]
+    right: [github]
+  components:
+    github:
+      icon: fa-github
+      aria-label: GitHub repository
+      href: https://github.com/annabellepiot/chlaa
+
+reference:
+  - title: Reference
+    contents:
+      - starts_with("chlaa_")

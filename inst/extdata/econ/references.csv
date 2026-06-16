@@ -1,0 +1,11 @@
+name,source_type,citation,source_url,notes
+cost_per_vaccine_dose,published,Routh et al. (2017) Cost Evaluation of a Government-Conducted Oral Cholera Vaccination Campaign—Haiti, 2013,https://pmc.ncbi.nlm.nih.gov/articles/PMC5676633/,"Total campaign cost per dose around USD 2.90 in Haiti 2013; default uses rounded illustrative value."
+cost_per_orc_treatment,assumption,Illustrative planning assumption for rapid scenario analysis,,"No single globally transferable unit cost; should be replaced with context-specific ORS/ORC costing."
+cost_per_ctc_treatment,assumption,Illustrative planning assumption for rapid scenario analysis,,"No single globally transferable unit cost; should be replaced with local CTC costing."
+cost_chlorination_per_person_day,assumption,Illustrative planning assumption for rapid scenario analysis,,"WASH package unit costs vary widely by programme design and context."
+cost_hygiene_per_person_day,assumption,Illustrative planning assumption for rapid scenario analysis,,"WASH package unit costs vary widely by programme design and context."
+cost_latrine_per_person_day,assumption,Illustrative planning assumption for rapid scenario analysis,,"WASH package unit costs vary widely by programme design and context."
+cost_cati_per_person_day,assumption,Illustrative planning assumption for rapid scenario analysis,,"CATI cost structures vary by deployment scale and logistics."
+dw_symptomatic,published,Global Burden of Disease diarrhoea disability weights (moderate episode range includes ~0.188),https://vivarium-research.readthedocs.io/en/latest/models/causes/diarrheal_diseases/gbd_2020/index.html,"Default uses a moderate symptomatic diarrhoeal disability proxy for cholera."
+duration_symptomatic_days,assumption,Illustrative symptomatic duration assumption,,"Replace with context- and age-specific clinical assumptions where available."
+yll_per_death,assumption,Illustrative years-of-life-lost assumption for simple comparative analyses,,"Replace with age-structured YLL calculations where data allow."

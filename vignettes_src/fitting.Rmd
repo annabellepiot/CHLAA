@@ -1,0 +1,1104 @@
+---
+title: "Fitting"
+output:
+  rmarkdown::html_vignette:
+    toc: true
+    toc_depth: 2
+vignette: >
+  %\VignetteIndexEntry{Fitting}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup-options, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 8,
+  fig.height = 5,
+  fig.path = "fitting/",
+  message = FALSE,
+  warning = FALSE
+)
+
+library(chlaa)
+library(dplyr)
+library(ggplot2)
+library(purrr)
+library(readr)
+library(tibble)
+library(tidyr)
+
+if (!requireNamespace("coda", quietly = TRUE)) {
+  stop("The coda package is needed for ESS and R-hat diagnostics.")
+}
+
+theme_set(theme_minimal(base_size = 12))
+```
+
+# Overview
+
+This vignette fits the cholera transmission model to weekly case counts from
+Kirotshe health zone. The data are weekly IDSR counts, so the observation model
+is a count model rather than a model for per-capita rates.
+
+The aim is to build up a stable pMCMC workflow for a deliberately small model.
+We fix the intervention dates and most natural-history parameters, set
+person-to-person transmission to zero, and estimate four quantities:
+
+* `trans_prob`: environmental transmission probability;
+* `reporting_rate`: the fraction of symptomatic infections reported as cases;
+* `obs_size`: the Negative Binomial overdispersion parameter;
+* `E0`: the initial exposed population.
+
+The workflow has two important features. First, we use deterministic-filter
+chains to learn the geometry of the posterior before running the particle
+filter. Second, we run several chains from dispersed starting points, because
+agreement between chains is one of the simplest checks that the fit is not just
+following its starting value.
+
+# Weekly observations
+
+The model has both daily and weekly incidence accumulators. Daily workflows use
+`inc_symptoms`; weekly workflows use `inc_symptoms_weekly`. For weekly data the
+likelihood is
+
+\[
+\text{cases}_t \sim \text{Negative Binomial}\{\mu_t, \text{obs_size}\},
+\qquad
+\mu_t = \text{reporting_rate} \times \text{inc_symptoms_weekly}_t.
+\]
+
+The first weekly observation is placed at `time = 7`, so it is compared with
+incidence accumulated over days 0 to 7. This is why `chlaa_fit_pmcmc()` starts
+weekly filters at day 0 when observations are at `7, 14, ...`.
+
+# Kirotshe data
+
+The package includes a small Kirotshe-only extract for this workflow. It
+contains the weekly outbreak counts and the intervention dates/effects needed
+for the fit; the larger analysis datasets remain outside the package build.
+Population size comes from the weekly IDSR extract and is passed to the process
+model as `N`.
+
+```{r load-data}
+repo_file <- function(...) {
+  candidates <- c(file.path(...), file.path("..", ...))
+  out <- candidates[file.exists(candidates)][1]
+  if (is.na(out)) stop("Could not find file: ", file.path(...), call. = FALSE)
+  out
+}
+
+repo_output_file <- function(...) {
+  roots <- c(".", "..")
+  root <- roots[file.exists(file.path(roots, "DESCRIPTION"))][1]
+  if (is.na(root)) stop("Could not find repository root", call. = FALSE)
+  file.path(root, ...)
+}
+
+extdata_file <- function(...) {
+  out <- system.file("extdata", ..., package = "chlaa")
+  if (nzchar(out)) return(out)
+  repo_file("inst", "extdata", ...)
+}
+
+hz_name <- "kirotshe"
+
+kirotshe <- read_csv(extdata_file("kirotshe_weekly_cases.csv"), show_col_types = FALSE) |>
+  mutate(date = as.Date(date))
+
+kirotshe_meta <- read_csv(
+  extdata_file("kirotshe_interventions.csv"),
+  col_types = cols(.default = col_character()),
+  na = c("NA", "")
+)
+
+outbreak_start <- as.Date(kirotshe_meta$outbreak_start)
+outbreak_end <- as.Date(kirotshe_meta$outbreak_end)
+
+kirotshe |>
+  select(date, time, cases, population, cases_pop) |>
+  head()
+```
+
+The model time is a consecutive weekly index. If reporting weeks are missing in
+a formal analysis, decide before fitting whether those weeks should be padded or
+whether the observed time gaps should be preserved.
+
+```{r observed-data-plot}
+ggplot(kirotshe, aes(date, cases)) +
+  geom_col(width = 6, fill = "grey65") +
+  labs(
+    x = NULL,
+    y = "Weekly reported cases",
+    title = "Kirotshe IDSR outbreak window"
+  )
+```
+
+# Interventions and fixed parameters
+
+The parameter file stores intervention dates as calendar dates. The model uses
+day offsets relative to the outbreak start.
+
+```{r intervention-days}
+date_to_day <- function(x, origin) {
+  d <- as.Date(x)
+  if (length(d) == 0 || is.na(d)) 0L else as.integer(d - origin)
+}
+
+num_or <- function(x, default = 0) {
+  y <- suppressWarnings(as.numeric(x))
+  if (length(y) == 0 || is.na(y)) default else y
+}
+
+intervention_days <- list(
+  orc_start = date_to_day(kirotshe_meta$orc_start, outbreak_start),
+  orc_end = date_to_day(kirotshe_meta$orc_end, outbreak_start),
+  ctc_start = date_to_day(kirotshe_meta$ctc_start, outbreak_start),
+  ctc_end = date_to_day(kirotshe_meta$ctc_end, outbreak_start),
+  chlor_start = date_to_day(kirotshe_meta$chlor_start, outbreak_start),
+  chlor_end = date_to_day(kirotshe_meta$chlor_end, outbreak_start),
+  chlor_effect = num_or(kirotshe_meta$chlor_effect),
+  hyg_start = date_to_day(kirotshe_meta$hyg_start, outbreak_start),
+  hyg_end = date_to_day(kirotshe_meta$hyg_end, outbreak_start),
+  hyg_effect = num_or(kirotshe_meta$hyg_effect),
+  cati_start = date_to_day(kirotshe_meta$cati_start, outbreak_start),
+  cati_end = date_to_day(kirotshe_meta$cati_end, outbreak_start),
+  cati_effect = num_or(kirotshe_meta$cati_effect),
+  lat_start = date_to_day(kirotshe_meta$lat_start, outbreak_start),
+  lat_end = date_to_day(kirotshe_meta$lat_end, outbreak_start),
+  lat_effect = num_or(kirotshe_meta$lat_effect)
+)
+
+tibble(
+  quantity = names(intervention_days),
+  value = unlist(intervention_days)
+)
+```
+
+For this example we use one small parameter factory. Everything not listed in
+the function arguments is fixed across the fits.
+
+```{r baseline-parameters}
+make_kirotshe_pars <- function(trans_prob,
+                               reporting_rate,
+                               obs_size,
+                               E0) {
+  do.call(
+    chlaa_parameters,
+    c(
+      list(
+        N = kirotshe$population[1],
+        contact_rate = 0,
+        trans_prob = trans_prob,
+        E0 = E0,
+        Sev0 = 0,
+        M0 = 0,
+        C0 = 0,
+        reporting_rate = reporting_rate,
+        obs_size = obs_size,
+        seek_severe = 0.4,
+        fatality_treated = 0.001,
+        fatality_untreated = 0.0043
+      ),
+      intervention_days
+    )
+  )
+}
+```
+
+# Simulated weekly data
+
+We first make a synthetic dataset on the Kirotshe time grid. This gives us a
+known truth for checking whether the workflow can recover the parameters before
+we fit the real outbreak.
+
+```{r synthetic-data}
+truth_pars <- make_kirotshe_pars(
+  trans_prob = 8.5e-4,
+  reporting_rate = 0.35,
+  obs_size = 120,
+  E0 = 80
+)
+
+truth <- chlaa_simulate(
+  pars = truth_pars,
+  time = kirotshe$time,
+  n_particles = 1,
+  seed = 1,
+  dt = 1,
+  deterministic = TRUE
+)
+
+set.seed(1)
+synthetic_weekly <- kirotshe |>
+  transmute(
+    time,
+    date,
+    population,
+    inc_symptoms_truth = truth$inc_symptoms_weekly,
+    mu_cases = truth_pars$reporting_rate * inc_symptoms_truth,
+    cases = rnbinom(n(), mu = pmax(mu_cases, 0.01), size = truth_pars$obs_size)
+  )
+
+natural_fit_names <- c("trans_prob", "reporting_rate", "obs_size", "E0")
+truth_vec <- unlist(truth_pars[natural_fit_names])
+truth_values <- tibble(parameter = names(truth_vec), truth = as.numeric(truth_vec))
+
+truth_values
+```
+
+```{r synthetic-data-plot}
+ggplot() +
+  geom_col(data = synthetic_weekly, aes(date, cases), width = 6, fill = "grey70") +
+  geom_line(data = synthetic_weekly, aes(date, mu_cases), colour = "#238b45", linewidth = 0.8) +
+  labs(
+    x = NULL,
+    y = "Weekly reported cases",
+    title = "Synthetic weekly data",
+    subtitle = "Bars are noisy observations; the green line is the observation mean"
+  )
+```
+
+# Diagnostic helpers
+
+The next few helpers are used to summarise the chains. The code is intentionally
+short: fitting itself is handled by `chlaa_fit_pmcmc()`, including multiple
+chains through `n_chains` and `chain_pars`.
+
+```{r run-settings}
+n_chains <- 3L
+pilot_steps <- 5000L
+deterministic_steps <- 20000L
+particle_steps <- 5000L
+particle_count <- 50L
+fit_data_synthetic <- synthetic_weekly |> select(time, cases)
+fit_data_real <- kirotshe |> select(time, cases)
+```
+
+Effective sample size, or ESS, translates an autocorrelated MCMC chain into the
+approximate number of independent samples it contains. A chain can save 3,750
+post-burn-in draws and still have an ESS of 50 if it moves slowly. ESS is
+therefore a measure of information, not just storage.
+
+```{r diagnostics-tables}
+draws_wide <- function(fit, burnin = 0.25, scale = c("sampled", "natural")) {
+  scale <- match.arg(scale)
+  chlaa_fit_trace(fit, burnin = burnin, scale = scale) |>
+    pivot_wider(names_from = parameter, values_from = value) |>
+    arrange(chain, iteration)
+}
+
+acceptance_summary <- function(fit, stage, burnin = 0.25) {
+  chlaa_fit_report(fit, burnin = burnin)$acceptance_by_chain |>
+    mutate(stage = stage, .before = 1)
+}
+
+ess_summary <- function(fit, stage, burnin = 0.25, parameters = NULL) {
+  dr <- draws_wide(fit, burnin = burnin, scale = "sampled")
+  if (is.null(parameters)) {
+    parameters <- setdiff(names(dr), c("chain", "iteration"))
+  }
+
+  dr |>
+    group_split(chain) |>
+    map_dfr(function(d) {
+      ess <- coda::effectiveSize(as.matrix(d[, parameters, drop = FALSE]))
+      tibble(chain = d$chain[[1]], parameter = names(ess), ess = as.numeric(ess))
+    }) |>
+    mutate(stage = stage, .before = 1)
+}
+
+rhat_summary <- function(fit, stage, burnin = 0.25, parameters = NULL) {
+  dr <- draws_wide(fit, burnin = burnin, scale = "sampled")
+  if (is.null(parameters)) {
+    parameters <- setdiff(names(dr), c("chain", "iteration"))
+  }
+
+  chains <- dr |>
+    group_split(chain) |>
+    map(\(d) coda::mcmc(as.matrix(d[, parameters, drop = FALSE])))
+
+  psrf <- coda::gelman.diag(
+    coda::mcmc.list(chains),
+    autoburnin = FALSE,
+    multivariate = FALSE
+  )$psrf
+
+  tibble(
+    stage = stage,
+    parameter = rownames(psrf),
+    rhat = psrf[, "Point est."],
+    rhat_upper = psrf[, "Upper C.I."]
+  )
+}
+```
+
+Posterior summaries are easier to read on the natural scale. For the synthetic
+example we can also record whether the true value lies in the central 95%
+posterior interval.
+
+```{r summary-helper}
+parameter_summary <- function(fit, stage, burnin = 0.25, truth = NULL) {
+  out <- draws_wide(fit, burnin = burnin, scale = "natural") |>
+    select(all_of(natural_fit_names)) |>
+    pivot_longer(everything(), names_to = "parameter", values_to = "value") |>
+    group_by(parameter) |>
+    summarise(
+      q025 = quantile(value, 0.025),
+      median = median(value),
+      q975 = quantile(value, 0.975),
+      .groups = "drop"
+    ) |>
+    mutate(stage = stage, .before = 1)
+
+  if (!is.null(truth)) {
+    out <- out |>
+      left_join(tibble(parameter = names(truth), truth = as.numeric(truth)), by = "parameter") |>
+      mutate(covers_truth = q025 <= truth & truth <= q975)
+  }
+
+  out
+}
+```
+
+The proposal covariance learned from a pilot run must be positive definite. The
+`make_pd()` helper symmetrises the covariance matrix, floors very small or
+negative eigenvalues, and reconstructs a valid covariance matrix. This prevents
+numerical failures when the empirical covariance is nearly singular.
+
+```{r proposal-helper}
+make_pd <- function(x, min_eig = 1e-10) {
+  x <- (x + t(x)) / 2
+  eig <- eigen(x, symmetric = TRUE)
+  eig$values <- pmax(eig$values, min_eig)
+  out <- eig$vectors %*% diag(eig$values, nrow = length(eig$values)) %*% t(eig$vectors)
+  dimnames(out) <- dimnames(x)
+  out
+}
+
+proposal_from_fit <- function(fit, burnin = 0.25, scale = 1) {
+  dr <- draws_wide(fit, burnin = burnin, scale = "sampled")
+  theta <- as.matrix(dr[, setdiff(names(dr), c("chain", "iteration")), drop = FALSE])
+  make_pd(cov(theta) * (2.38^2 / ncol(theta)) * scale)
+}
+```
+
+For particle pMCMC we start each chain from the median of the corresponding
+deterministic chain.
+
+```{r start-helper}
+pars_from_theta <- function(theta, template_pars, packer) {
+  theta <- as.numeric(theta)
+  names(theta) <- packer[["names"]]()
+  unpacked <- packer[["unpack"]](theta)
+  fixed_names <- names(packer[["inputs"]]()$fixed)
+  update_names <- setdiff(names(unpacked), fixed_names)
+
+  out <- template_pars
+  for (nm in intersect(update_names, names(out))) {
+    out[[nm]] <- unpacked[[nm]]
+  }
+  out
+}
+
+chain_median_starts <- function(fit, template_pars, burnin = 0.25) {
+  dr <- draws_wide(fit, burnin = burnin, scale = "sampled")
+  packer <- attr(fit, "packer", exact = TRUE)
+  fit_names <- packer[["names"]]()
+
+  dr |>
+    group_split(chain) |>
+    map(function(d) {
+      theta <- vapply(fit_names, \(nm) median(d[[nm]]), numeric(1))
+      pars_from_theta(theta, template_pars, packer)
+    })
+}
+```
+
+The posterior predictive plots use posterior draws from all chains after
+burn-in.
+
+```{r ppc-helper}
+plot_case_fit <- function(fit, observed, title, seed, burnin = 0.25) {
+  fc <- chlaa_forecast_from_fit(
+    fit = fit,
+    time = observed$time,
+    vars = "inc_symptoms_weekly",
+    include_cases = TRUE,
+    obs_model = "nbinom",
+    n_draws = 200,
+    burnin = burnin,
+    seed = seed,
+    dt = 1,
+    deterministic = FALSE
+  )
+
+  fit_cases <- fc |>
+    filter(variable == "cases") |>
+    left_join(observed |> select(time, date), by = "time")
+
+  ggplot() +
+    geom_ribbon(
+      data = fit_cases,
+      aes(date, ymin = q0p025, ymax = q0p975),
+      fill = "#6baed6",
+      alpha = 0.25
+    ) +
+    geom_ribbon(
+      data = fit_cases,
+      aes(date, ymin = q0p25, ymax = q0p75),
+      fill = "#6baed6",
+      alpha = 0.45
+    ) +
+    geom_line(data = fit_cases, aes(date, q0p5), colour = "#08519c", linewidth = 0.8) +
+    geom_point(data = observed, aes(date, cases), size = 1.6) +
+    labs(x = NULL, y = "Weekly reported cases", title = title)
+}
+```
+
+# Natural-scale random walk
+
+It is tempting to fit directly on the scale of the parameters. The starting
+values below are deliberately dispersed. The synthetic truth is included so the
+movement needed from each chain is visible.
+
+```{r raw-starts}
+make_raw_start <- function(trans_prob, reporting_rate, obs_size, E0) {
+  make_kirotshe_pars(
+    trans_prob = trans_prob,
+    reporting_rate = reporting_rate,
+    obs_size = obs_size,
+    E0 = E0
+  )
+}
+
+raw_starts <- list(
+  make_raw_start(trans_prob = 1.6e-3, reporting_rate = 0.12, obs_size = 20, E0 = 35),
+  make_raw_start(trans_prob = 4.0e-4, reporting_rate = 0.70, obs_size = 200, E0 = 200),
+  make_raw_start(trans_prob = 1.2e-3, reporting_rate = 0.25, obs_size = 45, E0 = 120)
+)
+
+bind_rows(
+  tibble(row = "truth", parameter = names(truth_vec), value = as.numeric(truth_vec)),
+  imap_dfr(raw_starts, \(pars, chain) tibble(
+    row = paste0("chain_", chain),
+    parameter = natural_fit_names,
+    value = unlist(pars[natural_fit_names])
+  ))
+) |>
+  pivot_wider(names_from = parameter, values_from = value)
+```
+
+The raw-scale prior and packer estimate the same four model parameters directly.
+This short deterministic run is not used for the final fit. It is a diagnostic
+contrast.
+
+```{r raw-setup}
+raw_prior <- monty::monty_dsl({
+  trans_prob ~ Uniform(1e-4, 1e-2)
+  reporting_rate ~ Uniform(0.05, 0.8)
+  obs_size ~ Uniform(1, 300)
+  E0 ~ Uniform(5, 2000)
+}, gradient = FALSE)
+
+raw_packer <- function(pars) {
+  fixed <- pars[setdiff(names(pars), natural_fit_names)]
+  monty::monty_packer(scalar = natural_fit_names, fixed = fixed)
+}
+
+raw_proposal <- c(
+  trans_prob = 1e-8,
+  reporting_rate = 2e-4,
+  obs_size = 9,
+  E0 = 400
+)
+```
+
+```{r raw-fit, message=FALSE}
+raw_fit <- chlaa_fit_pmcmc(
+  data = fit_data_synthetic,
+  pars = raw_starts[[1]],
+  chain_pars = raw_starts,
+  n_chains = n_chains,
+  n_particles = 1,
+  n_steps = pilot_steps,
+  seed = 91,
+  prior = raw_prior,
+  packer = raw_packer(raw_starts[[1]]),
+  proposal_var = raw_proposal,
+  obs_interval = 7,
+  time_start = 0,
+  deterministic = TRUE
+)
+```
+
+The raw-scale chains move, but they do not explore the posterior geometry very
+efficiently. Parameters with small positive values, probabilities bounded by
+zero and one, and large count-like parameters all need proposal variances on
+very different scales.
+
+```{r raw-diagnostics}
+acceptance_summary(raw_fit, "raw deterministic", burnin = 0.25)
+```
+
+```{r raw-ess-rhat}
+ess_summary(raw_fit, "raw deterministic", burnin = 0.25)
+rhat_summary(raw_fit, "raw deterministic", burnin = 0.25)
+```
+
+```{r raw-trace}
+chlaa_plot_trace(
+  raw_fit,
+  parameters = natural_fit_names,
+  burnin = 0.25,
+  scale = "natural"
+)
+```
+
+```{r raw-pairs, fig.height=7}
+chlaa_plot_parameter_pairs(
+  raw_fit,
+  parameters = natural_fit_names,
+  burnin = 0.25,
+  scale = "natural",
+  truth = truth_vec,
+  max_points = 2500
+)
+```
+
+# Transformed parameterisation
+
+The final workflow samples transformed coordinates:
+
+* `log_trans_prob` for a positive transmission probability;
+* `logit_reporting_rate` for a probability bounded by zero and one;
+* `log_obs_size` for a positive overdispersion parameter;
+* `log_E0` for a positive initial condition.
+
+The sampler moves on this transformed scale, but the plots below use the
+natural scale by default.
+
+```{r transformed-setup}
+fit_names <- c(
+  "log_trans_prob",
+  "logit_reporting_rate",
+  "log_obs_size",
+  "log_E0"
+)
+
+fit_prior <- monty::monty_dsl({
+  log_trans_prob ~ Uniform(-9.210340, -4.605170)       # log(c(1e-4, 1e-2))
+  logit_reporting_rate ~ Uniform(-2.944439, 1.386294) # qlogis(c(0.05, 0.8))
+  log_obs_size ~ Uniform(0, 5.703782)                 # log(c(1, 300))
+  log_E0 ~ Uniform(1.609438, 7.600902)                # log(c(5, 2000))
+}, gradient = FALSE)
+
+add_transformed_values <- function(pars) {
+  pars$log_trans_prob <- log(pars$trans_prob)
+  pars$logit_reporting_rate <- qlogis(pars$reporting_rate)
+  pars$log_obs_size <- log(pars$obs_size)
+  pars$log_E0 <- log(pars$E0)
+  pars
+}
+
+make_packer <- function(pars) {
+  fixed <- pars[setdiff(names(pars), c(fit_names, natural_fit_names))]
+
+  monty::monty_packer(
+    scalar = fit_names,
+    fixed = fixed,
+    process = function(p) {
+      list(
+        trans_prob = exp(p$log_trans_prob),
+        reporting_rate = plogis(p$logit_reporting_rate),
+        obs_size = exp(p$log_obs_size),
+        E0 = exp(p$log_E0)
+      )
+    }
+  )
+}
+```
+
+```{r transformed-starts}
+make_start <- function(trans_prob, reporting_rate, obs_size, E0) {
+  make_kirotshe_pars(
+    trans_prob = trans_prob,
+    reporting_rate = reporting_rate,
+    obs_size = obs_size,
+    E0 = E0
+  ) |>
+    add_transformed_values()
+}
+
+synthetic_starts <- list(
+  make_start(trans_prob = 1.6e-3, reporting_rate = 0.12, obs_size = 20, E0 = 35),
+  make_start(trans_prob = 4.0e-4, reporting_rate = 0.70, obs_size = 200, E0 = 200),
+  make_start(trans_prob = 1.2e-3, reporting_rate = 0.25, obs_size = 45, E0 = 120)
+)
+```
+
+# Synthetic fit
+
+The transformed workflow begins with a deterministic pilot. The proposal is
+diagonal and deliberately simple; it only needs to move enough for us to learn
+the covariance structure.
+
+```{r synthetic-pilot, message=FALSE}
+pilot_proposal <- c(
+  log_trans_prob = 0.02,
+  logit_reporting_rate = 0.05,
+  log_obs_size = 0.08,
+  log_E0 = 0.08
+)
+
+synthetic_pilot <- chlaa_fit_pmcmc(
+  data = fit_data_synthetic,
+  pars = synthetic_starts[[1]],
+  chain_pars = synthetic_starts,
+  n_chains = n_chains,
+  n_particles = 1,
+  n_steps = pilot_steps,
+  seed = 101,
+  prior = fit_prior,
+  packer = make_packer(synthetic_starts[[1]]),
+  proposal_var = pilot_proposal,
+  obs_interval = 7,
+  time_start = 0,
+  deterministic = TRUE
+)
+```
+
+The pilot acceptance rates should not be interpreted as final diagnostics. They
+tell us whether the simple proposal was able to move enough to estimate a useful
+covariance.
+
+```{r synthetic-pilot-diagnostics}
+acceptance_summary(synthetic_pilot, "synthetic pilot")
+```
+
+The learned covariance is full rather than diagonal. Off-diagonal correlations
+are useful here because `trans_prob`, `reporting_rate`, and `E0` can compensate
+for one another.
+
+```{r synthetic-det-proposal}
+synthetic_det_proposal <- proposal_from_fit(
+  synthetic_pilot,
+  burnin = 0.25,
+  scale = 1
+)
+
+round(cov2cor(synthetic_det_proposal), 2)
+```
+
+With the learned covariance, the deterministic chains can be run longer. The
+main visual check is that chains from different starts overlap after burn-in.
+
+```{r synthetic-deterministic-fit, message=FALSE}
+synthetic_det <- chlaa_fit_pmcmc(
+  data = fit_data_synthetic,
+  pars = synthetic_starts[[1]],
+  chain_pars = synthetic_starts,
+  n_chains = n_chains,
+  n_particles = 1,
+  n_steps = deterministic_steps,
+  seed = 201,
+  prior = fit_prior,
+  packer = make_packer(synthetic_starts[[1]]),
+  proposal_var = synthetic_det_proposal,
+  obs_interval = 7,
+  time_start = 0,
+  deterministic = TRUE
+)
+```
+
+```{r synthetic-deterministic-tables}
+acceptance_summary(synthetic_det, "synthetic deterministic")
+ess_summary(synthetic_det, "synthetic deterministic")
+rhat_summary(synthetic_det, "synthetic deterministic")
+```
+
+```{r synthetic-deterministic-summary}
+parameter_summary(
+  synthetic_det,
+  "synthetic deterministic",
+  truth = truth_vec
+)
+```
+
+```{r synthetic-deterministic-trace}
+chlaa_plot_trace(
+  synthetic_det,
+  parameters = natural_fit_names,
+  burnin = 0.25,
+  scale = "natural"
+)
+```
+
+The deterministic fit is also useful for diagnosing posterior geometry. The
+dashed lines mark the synthetic truth.
+
+```{r synthetic-det-distributions}
+chlaa_plot_parameter_distributions(
+  synthetic_det,
+  parameters = natural_fit_names,
+  burnin = 0.25,
+  scale = "natural",
+  truth = truth_vec
+)
+```
+
+```{r synthetic-det-pairs, fig.height=7}
+chlaa_plot_parameter_pairs(
+  synthetic_det,
+  parameters = natural_fit_names,
+  burnin = 0.25,
+  scale = "natural",
+  truth = truth_vec,
+  max_points = 3000
+)
+```
+
+# Synthetic particle pMCMC
+
+The particle-filter run uses the deterministic posterior medians as starting
+points. We keep the covariance direction learned by the deterministic fit and
+shrink the scale because the particle likelihood is noisy.
+
+```{r synthetic-particle-starts}
+synthetic_particle_starts <- chain_median_starts(
+  synthetic_det,
+  template_pars = synthetic_starts[[1]],
+  burnin = 0.25
+)
+```
+
+```{r synthetic-particle-proposal}
+synthetic_particle_proposal <- proposal_from_fit(
+  synthetic_det,
+  burnin = 0.25,
+  scale = 0.8
+)
+```
+
+```{r synthetic-particle-fit, message=FALSE}
+synthetic_particle <- chlaa_fit_pmcmc(
+  data = fit_data_synthetic,
+  pars = synthetic_particle_starts[[1]],
+  chain_pars = synthetic_particle_starts,
+  n_chains = n_chains,
+  n_particles = particle_count,
+  n_steps = particle_steps,
+  seed = 301,
+  prior = fit_prior,
+  packer = make_packer(synthetic_particle_starts[[1]]),
+  proposal_var = synthetic_particle_proposal,
+  obs_interval = 7,
+  time_start = 0,
+  deterministic = FALSE
+)
+```
+
+For the particle chains, acceptance is typically lower than the deterministic
+pilot because each likelihood evaluation is noisy.
+
+```{r synthetic-particle-acceptance}
+acceptance_summary(synthetic_particle, "synthetic particle")
+```
+
+ESS and R-hat are complementary. ESS asks how many independent samples the
+autocorrelated chain is worth; R-hat asks whether the different chains agree.
+
+```{r synthetic-particle-ess-rhat}
+ess_summary(synthetic_particle, "synthetic particle")
+rhat_summary(synthetic_particle, "synthetic particle")
+```
+
+The synthetic parameters are recovered if the posterior intervals cover the
+true values and the posterior mass is concentrated near them.
+
+```{r synthetic-particle-summary}
+parameter_summary(
+  synthetic_particle,
+  "synthetic particle",
+  truth = truth_vec
+)
+```
+
+```{r synthetic-particle-trace}
+chlaa_plot_trace(
+  synthetic_particle,
+  parameters = natural_fit_names,
+  burnin = 0.25,
+  scale = "natural"
+)
+```
+
+```{r synthetic-particle-distributions}
+chlaa_plot_parameter_distributions(
+  synthetic_particle,
+  parameters = natural_fit_names,
+  burnin = 0.25,
+  scale = "natural",
+  truth = truth_vec
+)
+```
+
+```{r synthetic-particle-pairs, fig.height=7}
+chlaa_plot_parameter_pairs(
+  synthetic_particle,
+  parameters = natural_fit_names,
+  burnin = 0.25,
+  scale = "natural",
+  truth = truth_vec,
+  max_points = 3000
+)
+```
+
+Finally, the posterior predictive check asks whether the fitted model can
+regenerate data like the observed weekly counts.
+
+```{r synthetic-fit-plot}
+plot_case_fit(
+  synthetic_particle,
+  synthetic_weekly,
+  "Posterior predictive fit to synthetic weekly cases",
+  seed = 401
+)
+```
+
+# Real Kirotshe fit
+
+The real-data fit follows the same deterministic-to-particle sequence. There is
+no known truth, so the emphasis shifts to chain agreement, predictive fit, and
+whether the inferred parameter values are epidemiologically plausible.
+
+```{r real-starts}
+real_starts <- list(
+  make_start(trans_prob = 2.0e-3, reporting_rate = 0.12, obs_size = 5, E0 = 600),
+  make_start(trans_prob = 6.0e-4, reporting_rate = 0.60, obs_size = 50, E0 = 1000),
+  make_start(trans_prob = 3.0e-3, reporting_rate = 0.20, obs_size = 10, E0 = 300)
+)
+
+imap_dfr(real_starts, \(pars, chain) tibble(
+  chain = paste0("chain_", chain),
+  parameter = natural_fit_names,
+  value = unlist(pars[natural_fit_names])
+)) |>
+  pivot_wider(names_from = parameter, values_from = value)
+```
+
+## Deterministic fit
+
+The real-data pilot again learns a proposal covariance with the deterministic
+filter. This keeps the expensive particle-filter stage focused on a proposal
+that already knows the posterior ridge.
+
+```{r real-pilot, message=FALSE}
+real_pilot <- chlaa_fit_pmcmc(
+  data = fit_data_real,
+  pars = real_starts[[1]],
+  chain_pars = real_starts,
+  n_chains = n_chains,
+  n_particles = 1,
+  n_steps = pilot_steps,
+  seed = 501,
+  prior = fit_prior,
+  packer = make_packer(real_starts[[1]]),
+  proposal_var = pilot_proposal,
+  obs_interval = 7,
+  time_start = 0,
+  deterministic = TRUE
+)
+```
+
+```{r real-pilot-acceptance}
+acceptance_summary(real_pilot, "real pilot")
+```
+
+```{r real-det-proposal}
+real_det_proposal <- proposal_from_fit(
+  real_pilot,
+  burnin = 0.25,
+  scale = 1
+)
+
+round(cov2cor(real_det_proposal), 2)
+```
+
+```{r real-deterministic-fit, message=FALSE}
+real_det <- chlaa_fit_pmcmc(
+  data = fit_data_real,
+  pars = real_starts[[1]],
+  chain_pars = real_starts,
+  n_chains = n_chains,
+  n_particles = 1,
+  n_steps = deterministic_steps,
+  seed = 601,
+  prior = fit_prior,
+  packer = make_packer(real_starts[[1]]),
+  proposal_var = real_det_proposal,
+  obs_interval = 7,
+  time_start = 0,
+  deterministic = TRUE
+)
+```
+
+```{r real-deterministic-diagnostics}
+acceptance_summary(real_det, "real deterministic")
+ess_summary(real_det, "real deterministic")
+rhat_summary(real_det, "real deterministic")
+```
+
+```{r real-deterministic-summary}
+parameter_summary(real_det, "real deterministic")
+```
+
+```{r real-deterministic-trace}
+chlaa_plot_trace(
+  real_det,
+  parameters = natural_fit_names,
+  burnin = 0.25,
+  scale = "natural"
+)
+```
+
+```{r real-deterministic-pairs, fig.height=7}
+chlaa_plot_parameter_pairs(
+  real_det,
+  parameters = natural_fit_names,
+  burnin = 0.25,
+  scale = "natural",
+  max_points = 3000
+)
+```
+
+## Particle pMCMC
+
+The real particle chains use 50 particles. The proposal is shrunk more than in
+the synthetic example because the real likelihood is noisier and the posterior
+is tighter around a low `obs_size`.
+
+```{r real-particle-starts}
+real_particle_starts <- chain_median_starts(
+  real_det,
+  template_pars = real_starts[[1]],
+  burnin = 0.25
+)
+```
+
+```{r real-particle-proposal}
+real_particle_proposal <- proposal_from_fit(
+  real_det,
+  burnin = 0.25,
+  scale = 0.2
+)
+```
+
+```{r real-particle-fit, message=FALSE}
+real_particle <- chlaa_fit_pmcmc(
+  data = fit_data_real,
+  pars = real_particle_starts[[1]],
+  chain_pars = real_particle_starts,
+  n_chains = n_chains,
+  n_particles = particle_count,
+  n_steps = particle_steps,
+  seed = 701,
+  prior = fit_prior,
+  packer = make_packer(real_particle_starts[[1]]),
+  proposal_var = real_particle_proposal,
+  obs_interval = 7,
+  time_start = 0,
+  deterministic = FALSE
+)
+```
+
+```{r real-particle-acceptance}
+acceptance_summary(real_particle, "real particle")
+```
+
+```{r real-particle-ess-rhat}
+ess_summary(real_particle, "real particle")
+rhat_summary(real_particle, "real particle")
+```
+
+```{r real-particle-summary}
+parameter_summary(real_particle, "real particle")
+```
+
+```{r real-particle-trace}
+chlaa_plot_trace(
+  real_particle,
+  parameters = natural_fit_names,
+  burnin = 0.25,
+  scale = "natural"
+)
+```
+
+```{r real-particle-distributions}
+chlaa_plot_parameter_distributions(
+  real_particle,
+  parameters = natural_fit_names,
+  burnin = 0.25,
+  scale = "natural"
+)
+```
+
+```{r real-particle-pairs, fig.height=7}
+chlaa_plot_parameter_pairs(
+  real_particle,
+  parameters = natural_fit_names,
+  burnin = 0.25,
+  scale = "natural",
+  max_points = 3000
+)
+```
+
+The posterior predictive fit captures the broad two-wave structure. If the
+highest late observations remain systematically above the median, that is a
+model signal: the next model comparison should consider additional seeding,
+initial-condition structure, or limited person-to-person transmission.
+
+```{r real-fit-plot}
+plot_case_fit(
+  real_particle,
+  kirotshe,
+  "Posterior predictive fit to Kirotshe weekly cases",
+  seed = 801
+)
+```
+
+The fitted stochastic pMCMC object is saved as package example data. The
+scenario and health-economics vignettes read this object, so they can start
+from the fitted Kirotshe posterior rather than refitting the particle filter.
+
+```{r save-fit-artifact}
+fit_artifact <- list(
+  fit = real_particle,
+  pars = attr(real_particle, "start_pars", exact = TRUE),
+  observed = kirotshe,
+  interventions = kirotshe_meta,
+  outbreak_start = outbreak_start,
+  outbreak_end = outbreak_end,
+  burnin = 0.25,
+  particle_count = particle_count
+)
+
+artifact_path <- repo_output_file("inst", "extdata", "kirotshe_particle_fit.rds")
+saveRDS(fit_artifact, artifact_path)
+artifact_path
+```
+
+# Reading the diagnostics
+
+The synthetic fit is the calibration check: the known truth should sit inside
+the posterior intervals and near the high-density region of the marginal and
+joint posterior plots. The real fit then asks a different question: whether the
+small fitted model is stable enough to use as a baseline for scenario analysis.
+
+The diagnostic tables and plots should be read together. Trace plots show
+movement and chain overlap. ESS shows how much independent information the saved
+draws contain. R-hat shows whether chains started from different points have
+settled into the same distribution. Posterior predictive plots show whether
+parameter uncertainty and observation noise generate outbreak curves like the
+observed data.
