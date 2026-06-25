@@ -58,7 +58,7 @@ echo "========================================"
 echo ""
 
 # Run the fitting script for this specific health zone
-Rscript /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/01_v2_fitting_all_HZs.R "$HZ_NAME"
+Rscript /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/01_02_fitting_all_HZs.R "$HZ_NAME"
 
 EXIT_CODE=$?
 
