@@ -50,3 +50,7 @@ Thumbs.db
 
 # Analysis data (not public)
 analysis/data/
+
+# Generated output and figures
+output/
+figures/

@@ -22,11 +22,8 @@ fig_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/CHLAA/figures"
 # scenario vignette. We first check the fitted weekly case curve, then use the
 # posterior-median parameter set for scenario simulation and costing.
 
-fit_obj <- readRDS(system.file(
-  "extdata", "kirotshe_particle_fit.rds",
-  package = "chlaa",
-  mustWork = TRUE
-))
+data_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/data"
+fit_obj <- readRDS(file.path(data_dir, "kirotshe_particle_fit.rds"))
 
 fit <- fit_obj$fit
 base_pars <- fit_obj$pars
@@ -39,6 +36,7 @@ pars_fit <- chlaa_update_from_fit(
   draw = "median",
   burnin = burnin
 )
+
 
 # -----------------------------------------------------------------------------
 # 2. Forecast and visualise fitted case curve
@@ -82,7 +80,13 @@ ggsave(
 
 horizon <- max(observed$time) + 182
 scenario_time <- seq(7, horizon, by = 7)
-trigger_time <- min(observed$time[observed$cases >= 50])
+trigger_candidates <- observed$time[observed$cases >= 50]
+if (length(trigger_candidates) == 0) {
+  warning("No week with >= 50 cases found; defaulting trigger_time to first observation time")
+  trigger_time <- min(observed$time)
+} else {
+  trigger_time <- min(trigger_candidates)
+}
 response_end <- horizon + 1
 campaign_days <- 28
 vaccine_doses <- floor(0.20 * pars_fit$N)
@@ -112,7 +116,7 @@ aa_response <- list(
 )
 
 # Anticipatory-action response + vaccination campaign
-aa_vaccination <- modifyList(aa_response, list(
+aa_vaccination <- utils::modifyList(aa_response, list(
   vax1_start = trigger_time + 14,
   vax1_end = trigger_time + 14 + campaign_days,
   vax1_total_doses = vaccine_doses,
@@ -148,6 +152,48 @@ ggsave(
   plot = p_scenario_overlay, width = 12, height = 7, dpi = 300
 )
 
+############ -------------------------############
+## THIS IS THE NEW PLOT I ADDED, note econ <- chlaa_econ_defaults() APPEARS TWICE NOW
+############ -------------------------############
+# Cumulative treatment & vaccination cost over time (USD)
+# WASH costs are fixed by the intervention schedule (not driven by the
+# simulation) so they are excluded here — this shows the variable costs that
+# scale with case numbers and vaccine uptake.
+econ <- chlaa_econ_defaults()
+
+cost_over_time <- runs |>
+  mutate(
+    cum_cost = econ$cost_per_orc_treatment * cum_orc_treated +
+      econ$cost_per_ctc_treatment * cum_ctc_treated +
+      econ$cost_per_vaccine_dose * (cum_vax1 + cum_vax2)
+  ) |>
+  group_by(scenario, time) |>
+  summarise(
+    q10 = quantile(cum_cost, 0.1),
+    q50 = quantile(cum_cost, 0.5),
+    q90 = quantile(cum_cost, 0.9),
+    .groups = "drop"
+  )
+
+p_cost_overlay <- ggplot(cost_over_time, aes(x = time, colour = scenario, fill = scenario)) +
+  geom_ribbon(aes(ymin = q10, ymax = q90), alpha = 0.2, colour = NA) +
+  geom_line(aes(y = q50), linewidth = 0.8) +
+  scale_y_continuous(labels = scales::dollar_format()) +
+  labs(
+    x = "Time (days)",
+    y = "Cumulative cost (USD)",
+    colour = "Scenario",
+    fill = "Scenario",
+    title = "Cumulative treatment & vaccination cost by scenario"
+  ) +
+  theme_minimal()
+print(p_cost_overlay)
+
+ggsave(
+  file.path(fig_dir, "health_econ_cumulative_cost.png"),
+  plot = p_cost_overlay, width = 12, height = 7, dpi = 300
+)
+
 # -----------------------------------------------------------------------------
 # 4. Economic analysis and cost-effectiveness
 # -----------------------------------------------------------------------------
@@ -169,7 +215,47 @@ cmp <- chlaa_compare_scenarios(
 print(cmp)
 
 # Cost-effectiveness plane
-p_ce_plane <- chlaa_plot_ce_plane(cmp)
+# The package default chlaa_plot_ce_plane(cmp) renders poorly because the
+# no_interventions outlier blows out the axis scale. We build a custom version
+# that labels points clearly and adds a WTP threshold line.
+cmp_plot <- cmp |>
+  filter(scenario != "fitted_response")
+
+# Nicer labels for display
+scenario_labels <- c(
+  no_interventions = "No intervention",
+  aa_response = "AA response",
+  aa_response_plus_vaccine = "AA + vaccine"
+)
+cmp_plot <- cmp_plot |>
+  mutate(label = scenario_labels[scenario])
+
+p_ce_plane <- ggplot(cmp_plot, aes(x = dalys_averted, y = cost_diff)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_abline(
+    intercept = 0, slope = 1500, linetype = "dotted", colour = "steelblue",
+    linewidth = 0.6
+  ) +
+  annotate(
+    "text",
+    x = max(cmp_plot$dalys_averted) * 0.6,
+    y = max(cmp_plot$dalys_averted) * 0.6 * 1500,
+    label = "WTP = $1,500/DALY", colour = "steelblue",
+    hjust = 0, vjust = -0.5, size = 3.5
+  ) +
+  geom_point(aes(colour = label), size = 4) +
+  geom_text(aes(label = label), vjust = -1, size = 3.5, check_overlap = TRUE) +
+  scale_x_continuous(labels = scales::comma_format()) +
+  scale_y_continuous(labels = scales::dollar_format()) +
+  labs(
+    x = "DALYs averted vs fitted response (baseline)",
+    y = "Incremental cost vs baseline (USD)",
+    title = "Cost-effectiveness plane",
+    colour = "Scenario"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
 print(p_ce_plane)
 
 ggsave(

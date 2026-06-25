@@ -22,11 +22,8 @@ fig_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/CHLAA/figures"
 # using as the baseline. This reads the pre-fitted stochastic pMCMC model for
 # Kirotshe from package data rather than refitting.
 
-fit_obj <- readRDS(system.file(
-  "extdata", "kirotshe_particle_fit.rds",
-  package = "chlaa",
-  mustWork = TRUE
-))
+data_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/data"
+fit_obj <- readRDS(file.path(data_dir, "kirotshe_particle_fit.rds"))
 
 fit <- fit_obj$fit
 base_pars <- fit_obj$pars

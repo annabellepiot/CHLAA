@@ -15,9 +15,10 @@ library(dplyr)
 library(tidyr)
 library(readr)
 library(purrr)
+library(coda)
 
 # Directory for saving figures
-fig_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/CHLAA/figures"
+fig_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures"
 
 # -----------------------------------------------------------------------------
 # 1. File path helpers
@@ -55,17 +56,29 @@ extdata_file <- function(...) {
 
 hz_name <- "kirotshe"
 
-kirotshe <- read_csv(extdata_file("kirotshe_weekly_cases.csv"), show_col_types = FALSE) |>
-  mutate(date = as.Date(date))
+data_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/data"
 
 kirotshe_meta <- read_csv(
-  extdata_file("kirotshe_interventions.csv"),
+  file.path(data_dir, "hz_parameters.csv"),
   col_types = cols(.default = col_character()),
   na = c("NA", "")
-)
+) |>
+  filter(hz == hz_name) |>
+  select(-hz) |>
+  pivot_wider(names_from = parameter, values_from = value)
 
-outbreak_start <- as.Date(kirotshe_meta$outbreak_start)
-outbreak_end <- as.Date(kirotshe_meta$outbreak_end)
+outbreak_start_date <- as.Date(kirotshe_meta$outbreak_start)
+outbreak_end_date <- as.Date(kirotshe_meta$outbreak_end)
+
+kirotshe <- read_csv(file.path(data_dir, "IDSR_dataset.csv"), show_col_types = FALSE) |>
+  filter(hz == hz_name) |>
+  mutate(date = as.Date(date)) |>
+  filter(date >= outbreak_start_date, date <= outbreak_end_date) |>
+  mutate(time = seq_len(n()) * 7L) |>
+  select(date, time, cases, population, cases_pop)
+
+outbreak_start <- outbreak_start_date
+outbreak_end <- outbreak_end_date
 
 kirotshe |>
   select(date, time, cases, population, cases_pop) |>
@@ -192,15 +205,17 @@ synthetic_weekly <- kirotshe |>
     date,
     population,
     inc_symptoms_truth = truth$inc_symptoms_weekly,
-    mu_cases = truth_pars$reporting_rate * inc_symptoms_truth,
+    mu_cases = truth_pars$reporting_rate * truth$inc_symptoms_weekly,
     cases = rnbinom(n(), mu = pmax(mu_cases, 0.01), size = truth_pars$obs_size)
   )
+
 
 natural_fit_names <- c("trans_prob", "reporting_rate", "obs_size", "E0")
 truth_vec <- unlist(truth_pars[natural_fit_names])
 truth_values <- tibble(parameter = names(truth_vec), truth = as.numeric(truth_vec))
 
 truth_values
+
 
 # -----------------------------------------------------------------------------
 # 7. Plot synthetic data
@@ -574,6 +589,11 @@ ggsave(
 # -----------------------------------------------------------------------------
 # Implements log and logit transformations to improve parameter exploration
 # geometry, with automatic back-transformation.
+# log_trans_prob for a positive transmission probability;
+# logit_reporting_rate for a probability bounded by zero and one;
+# log_obs_size for a positive overdispersion parameter;
+# log_E0 for a positive initial condition.
+# The sampler moves on this transformed scale, but the plots below use the natural scale by default.
 
 fit_names <- c(
   "log_trans_prob",
@@ -637,7 +657,10 @@ synthetic_starts <- list(
 # 25. Synthetic pilot run
 # -----------------------------------------------------------------------------
 # First transformed-scale fit with simple diagonal proposal to learn
-# covariance structure.
+# covariance structure. The transformed workflow begins with a deterministic pilot.
+# The proposal is diagonal and deliberately simple; it only needs to move enough for us to learn the covariance structure.
+# The pilot acceptance rates should not be interpreted as final diagnostics. They tell us whether the simple proposal
+# was able to move enough to estimate a useful covariance.
 
 pilot_proposal <- c(
   log_trans_prob = 0.02,
@@ -669,6 +692,8 @@ acceptance_summary(synthetic_pilot, "synthetic pilot")
 # -----------------------------------------------------------------------------
 # Extracts correlation structure showing strong negative correlation between
 # transmission and reporting parameters.
+# The learned covariance is full rather than diagonal.
+# Off-diagonal correlations are useful here because trans_prob, reporting_rate, and E0 can compensate for one another.
 
 synthetic_det_proposal <- proposal_from_fit(
   synthetic_pilot,
@@ -683,6 +708,8 @@ round(cov2cor(synthetic_det_proposal), 2)
 # -----------------------------------------------------------------------------
 # Extended deterministic run with learned proposal, showing improved
 # diagnostics and parameter recovery.
+# With the learned covariance, the deterministic chains can be run longer.
+# The main visual check is that chains from different starts overlap after burn-in.
 
 synthetic_det <- chlaa_fit_pmcmc(
   data = fit_data_synthetic,
@@ -715,6 +742,10 @@ parameter_summary(
 # -----------------------------------------------------------------------------
 # Trace, marginal distribution, and bivariate scatter plots verifying
 # posterior geometry against synthetic truth.
+# The deterministic fit is also useful for diagnosing posterior geometry.
+# The dashed lines mark the synthetic truth.
+
+
 
 p_synth_det_trace <- chlaa_plot_trace(
   synthetic_det,
@@ -761,8 +792,9 @@ ggsave(
 # -----------------------------------------------------------------------------
 # 29. Synthetic particle filter starting points
 # -----------------------------------------------------------------------------
-# Uses deterministic posterior medians as starts and shrinks proposal scale
-# for noisier particle likelihood.
+# The particle-filter run uses the deterministic posterior medians as starting points.
+# We keep the covariance direction learned by the deterministic fit and shrink the scale
+# because the particle likelihood is noisy.
 
 synthetic_particle_starts <- chain_median_starts(
   synthetic_det,
@@ -781,6 +813,11 @@ synthetic_particle_proposal <- proposal_from_fit(
 # -----------------------------------------------------------------------------
 # Final stochastic fit with 50 particles per likelihood evaluation across
 # three chains.
+# For the particle chains, acceptance is typically lower than the deterministic pilot
+# because each likelihood evaluation is noisy.
+# ESS and R-hat are complementary. ESS asks how many independent samples the autocorrelated chain is worth;
+# R-hat asks whether the different chains agree.
+# The synthetic parameters are recovered if the posterior intervals cover the true values and the posterior mass is concentrated near them.
 
 synthetic_particle <- chlaa_fit_pmcmc(
   data = fit_data_synthetic,
@@ -1097,7 +1134,7 @@ fit_artifact <- list(
   particle_count = particle_count
 )
 
-artifact_path <- repo_output_file("inst", "extdata", "kirotshe_particle_fit.rds")
+artifact_path <- file.path(data_dir, "kirotshe_particle_fit.rds")
 saveRDS(fit_artifact, artifact_path)
 artifact_path
 

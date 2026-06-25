@@ -1,11 +1,74 @@
 #!/bin/bash
-#PBS -l walltime=48:00:00
-#PBS -l select=1:ncpus=8:mem=32gb
-#PBS -N chlaa_fit
-#PBS -o /rds/general/user/acp25/home/MIMIC/Clean_data/CHLAA/output/chlaa_fit.out
-#PBS -e /rds/general/user/acp25/home/MIMIC/Clean_data/CHLAA/output/chlaa_fit.err
+#PBS -l walltime=24:00:00
+#PBS -l select=1:ncpus=4:mem=16gb
+#PBS -J 1-12
+#PBS -N chlaa_fit_array
+#PBS -o /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/output/chlaa_fit_${PBS_ARRAY_INDEX}.out
+#PBS -e /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/output/chlaa_fit_${PBS_ARRAY_INDEX}.err
 
+# =========================================================================
+# PBS Array Job for Multi-Site PMCMC Fitting
+# =========================================================================
+#
+# This script submits independent jobs for each health zone, preventing
+# cascade failures. Each job runs on a separate node with its own resources.
+#
+# Array indices 1-12 correspond to the 12 unique health zones in the dataset.
+#
+# To submit: qsub run_All_HZ_fitting.pbs
+# To monitor: qstat -t -u $USER
+# To check specific job: qstat -f <job_id>[<array_index>]
+#
+# =========================================================================
+
+# Activate R environment
 eval "$(~/miniforge3/bin/conda shell.bash hook)"
 conda activate Renv
 
-Rscript /rds/general/user/acp25/home/MIMIC/Clean_data/CHLAA/chlaa/analysis/All_HZ_fitting.r
+# Define health zones array (order must match PBS_ARRAY_INDEX)
+# Based on unique HZs in hz_parameters.csv (alphabetically sorted)
+HZ_NAMES=(
+  "dummy"           # Index 0 (unused, PBS arrays start at 1)
+  "alunguli"        # Index 1
+  "bumbu"           # Index 2
+  "goma"            # Index 3
+  "kindu"           # Index 4
+  "kingabwa"        # Index 5
+  "kirotshe"        # Index 6
+  "kokolo"          # Index 7
+  "limete"          # Index 8
+  "maluku_i"        # Index 9
+  "ngiri_ngiri"     # Index 10
+  "nyiragongo"      # Index 11
+  "opala"           # Index 12
+)
+
+# Get the health zone name for this array index
+HZ_NAME="${HZ_NAMES[$PBS_ARRAY_INDEX]}"
+
+echo "========================================"
+echo "PBS Array Job Information"
+echo "========================================"
+echo "Job ID: $PBS_JOBID"
+echo "Array Index: $PBS_ARRAY_INDEX"
+echo "Health Zone: $HZ_NAME"
+echo "Node: $(hostname)"
+echo "Start Time: $(date)"
+echo "========================================"
+echo ""
+
+# Run the fitting script for this specific health zone
+Rscript /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/01_v2_fitting_all_HZs.R "$HZ_NAME"
+
+EXIT_CODE=$?
+
+echo ""
+echo "========================================"
+echo "Job Complete"
+echo "========================================"
+echo "Health Zone: $HZ_NAME"
+echo "End Time: $(date)"
+echo "Exit Code: $EXIT_CODE"
+echo "========================================"
+
+exit $EXIT_CODE

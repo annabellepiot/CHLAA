@@ -19,7 +19,7 @@ execute:
 ```{r setup}
 library(tidyverse)
 
-data_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/CHLAA/chlaa/analysis/data"
+data_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/data"
 
 # ---- Load IDSR_dataset ----
 combined <- read.csv(file.path(data_dir, "IDSR_dataset.csv"),
@@ -155,7 +155,7 @@ plot_cases_deaths_outbreak <- function(hz_name) {
 
     # Show 3 months before and after the outbreak dates
     plot_start <- hz_start - 90
-    plot_end   <- hz_end + 90
+    plot_end <- hz_end + 90
 
     df <- combined %>%
         filter(
@@ -194,8 +194,10 @@ plot_cases_deaths_outbreak <- function(hz_name) {
 
     ggplot(df_long, aes(x = date, y = count, fill = measure)) +
         geom_col(position = "identity", width = 7, alpha = 0.7) +
-        geom_vline(xintercept = c(hz_start, hz_end),
-            linetype = "dashed", colour = "grey40", linewidth = 0.5) +
+        geom_vline(
+            xintercept = c(hz_start, hz_end),
+            linetype = "dashed", colour = "grey40", linewidth = 0.5
+        ) +
         scale_fill_manual(values = c(
             "Cases" = "steelblue",
             "Deaths" = "firebrick"
