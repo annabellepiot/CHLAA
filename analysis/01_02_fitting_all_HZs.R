@@ -477,12 +477,22 @@ fit_hz <- function(hz_name,
 
     # ---- 10. Exploratory fit with robust covariance ----
 
-    # Start with diagonal proposal
-    explore_proposal <- matrix(0, 4, 4)
-    explore_proposal[1, 1] <- 0.02
-    explore_proposal[2, 2] <- 0.05
-    explore_proposal[3, 3] <- 0.08
-    explore_proposal[4, 4] <- 0.08
+    # Start with diagonal proposal (size depends on freeze_reporting_rate)
+    n_params <- if (freeze_reporting_rate) 3 else 4
+    explore_proposal <- matrix(0, n_params, n_params)
+
+    if (freeze_reporting_rate) {
+        # 3 parameters: log_trans_prob, log_obs_size, log_E0
+        explore_proposal[1, 1] <- 0.02  # log_trans_prob
+        explore_proposal[2, 2] <- 0.08  # log_obs_size
+        explore_proposal[3, 3] <- 0.08  # log_E0
+    } else {
+        # 4 parameters: log_trans_prob, logit_reporting_rate, log_obs_size, log_E0
+        explore_proposal[1, 1] <- 0.02  # log_trans_prob
+        explore_proposal[2, 2] <- 0.05  # logit_reporting_rate
+        explore_proposal[3, 3] <- 0.08  # log_obs_size
+        explore_proposal[4, 4] <- 0.08  # log_E0
+    }
 
     # Safeguard: ensure positive variances
     stopifnot(all(diag(explore_proposal) > 0))
