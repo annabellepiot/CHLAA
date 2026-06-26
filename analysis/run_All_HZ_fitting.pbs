@@ -3,8 +3,8 @@
 #PBS -l select=1:ncpus=4:mem=16gb
 #PBS -J 1-12
 #PBS -N chlaa_fit_array
-#PBS -o /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/output/chlaa_fit_${PBS_ARRAY_INDEX}.out
-#PBS -e /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/output/chlaa_fit_${PBS_ARRAY_INDEX}.err
+#PBS -o /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/output/
+#PBS -e /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/output/
 
 # =========================================================================
 # PBS Array Job for Multi-Site PMCMC Fitting

@@ -88,9 +88,6 @@ fit_hz <- function(hz_name,
     )
 
     idsr <- read.csv(file.path(data_dir, "IDSR_dataset.csv"))
-    vax_dates <- read.csv(file.path(data_dir, "ocv_vaccination_dates.csv"),
-        stringsAsFactors = FALSE
-    )
 
     # ---- 2. Extract parameters for this HZ ----
     # Keep in long format to handle multiple vaccination campaigns
@@ -157,113 +154,61 @@ fit_hz <- function(hz_name,
     cati_effect_val <- as.numeric(get_param("cati_effect"))
     lat_effect_val <- as.numeric(get_param("lat_effect"))
 
-    # ---- 5. Handle vaccination campaigns with delivery profiles ----
-    # Load vaccination data for this HZ and generate schedules with
-    # empirical delivery profile (30.5%, 37.7%, 22.7%, 7.4%, 1.4%, 0.3%)
+    # ---- 5. Handle vaccination campaigns ----
+    # For HZs with multiple vaccination campaigns, select campaigns that fall
+    # within the outbreak period. This accommodates cases like limete with
+    # multiple entries for vax1_start/vax1_end.
 
-    # Extract vaccination data from ocv_vaccination_dates.csv
-    # Handle name variations (underscore vs hyphen vs space)
-    vax_hz <- vax_dates %>%
-        filter(healthzone == hz_name |
-            healthzone == gsub("_", " ", hz_name) |
-            healthzone == gsub("_", "-", hz_name))
-
-    # Extract vax1 campaign data with total doses
-    vax1_total_doses_hz <- hz_rows_long %>%
-        filter(parameter == "vax1_total_doses") %>%
+    vax1_start_vals <- hz_rows_long %>%
+        filter(parameter == "vax1_start") %>%
         pull(value) %>%
-        as.numeric() %>%
-        first()
+        as.Date()
 
-    vax1_campaigns <- vax_hz %>%
-        filter(parameter %in% c("vax1_start", "vax1_end", "vax1_total_doses")) %>%
-        select(-dose_round) %>%
-        pivot_wider(names_from = parameter, values_from = value) %>%
-        filter(!is.na(vax1_start) & vax1_start != "NA")
+    vax1_end_vals <- hz_rows_long %>%
+        filter(parameter == "vax1_end") %>%
+        pull(value) %>%
+        as.Date()
 
-    # Generate vax1 schedule
-    if (nrow(vax1_campaigns) > 0 && !is.na(vax1_total_doses_hz) && vax1_total_doses_hz > 0) {
-        # Use first campaign in outbreak period
-        vax1_camp <- vax1_campaigns[1, ]
-        vax1_start_date <- as.Date(vax1_camp$vax1_start)
-        vax1_end_date <- as.Date(vax1_camp$vax1_end)
+    vax2_start_vals <- hz_rows_long %>%
+        filter(parameter == "vax2_start") %>%
+        pull(value) %>%
+        as.Date()
 
-        if (!is.na(vax1_start_date) && !is.na(vax1_end_date) &&
-            vax1_start_date >= outbreak_start && vax1_start_date <= outbreak_end) {
-            vax1_schedule <- generate_vax_schedule(
-                total_doses = vax1_total_doses_hz,
-                start_date = vax1_start_date,
-                end_date = vax1_end_date,
-                outbreak_start = outbreak_start
-            )
-            vax1_arrays <- prepare_vax_arrays(vax1_schedule)
-            vax1_start_day <- min(vax1_schedule$time)
-            vax1_end_day <- max(vax1_schedule$time) + 1
+    vax2_end_vals <- hz_rows_long %>%
+        filter(parameter == "vax2_end") %>%
+        pull(value) %>%
+        as.Date()
 
-            if (verbose) {
-                cat(sprintf("Vaccination campaign 1: days %d to %d\n", vax1_start_day, vax1_end_day))
-                cat(sprintf("  Total doses: %d over %d days\n", vax1_total_doses_hz, nrow(vax1_schedule)))
-                cat(sprintf("  Daily range: %.0f - %.0f doses\n",
-                    min(vax1_schedule$doses), max(vax1_schedule$doses)
-                ))
-            }
-        } else {
-            vax1_schedule <- generate_empty_vax_schedule(outbreak_start)
-            vax1_arrays <- prepare_vax_arrays(vax1_schedule)
-            vax1_start_day <- 0L
-            vax1_end_day <- 0L
+    # Filter vaccination campaigns to those within outbreak period
+    vax1_in_outbreak <- which(!is.na(vax1_start_vals) &
+        vax1_start_vals >= outbreak_start &
+        vax1_start_vals <= outbreak_end)
+    vax2_in_outbreak <- which(!is.na(vax2_start_vals) &
+        vax2_start_vals >= outbreak_start &
+        vax2_start_vals <= outbreak_end)
+
+    # Select first campaign within outbreak period (if multiple exist)
+    # Note: The chlaa model currently supports single vax1/vax2 periods
+    # If multiple campaigns need to be modeled, the Odin model would need extension
+
+    if (length(vax1_in_outbreak) > 0) {
+        vax1_start_day <- safe_date_to_day(vax1_start_vals[vax1_in_outbreak[1]], outbreak_start)
+        vax1_end_day <- safe_date_to_day(vax1_end_vals[vax1_in_outbreak[1]], outbreak_start)
+        if (verbose && length(vax1_in_outbreak) > 1) {
+            cat("Note: Multiple vax1 campaigns found. Using first campaign in outbreak period.\n")
         }
     } else {
-        vax1_schedule <- generate_empty_vax_schedule(outbreak_start)
-        vax1_arrays <- prepare_vax_arrays(vax1_schedule)
         vax1_start_day <- 0L
         vax1_end_day <- 0L
     }
 
-    # Extract vax2 campaign data with total doses
-    vax2_total_doses_hz <- hz_rows_long %>%
-        filter(parameter == "vax2_total_doses") %>%
-        pull(value) %>%
-        as.numeric() %>%
-        first()
-
-    vax2_campaigns <- vax_hz %>%
-        filter(parameter %in% c("vax2_start", "vax2_end", "vax2_total_doses")) %>%
-        select(-dose_round) %>%
-        pivot_wider(names_from = parameter, values_from = value) %>%
-        filter(!is.na(vax2_start) & vax2_start != "NA")
-
-    # Generate vax2 schedule
-    if (nrow(vax2_campaigns) > 0 && !is.na(vax2_total_doses_hz) && vax2_total_doses_hz > 0) {
-        vax2_camp <- vax2_campaigns[1, ]
-        vax2_start_date <- as.Date(vax2_camp$vax2_start)
-        vax2_end_date <- as.Date(vax2_camp$vax2_end)
-
-        if (!is.na(vax2_start_date) && !is.na(vax2_end_date) &&
-            vax2_start_date >= outbreak_start && vax2_start_date <= outbreak_end) {
-            vax2_schedule <- generate_vax_schedule(
-                total_doses = vax2_total_doses_hz,
-                start_date = vax2_start_date,
-                end_date = vax2_end_date,
-                outbreak_start = outbreak_start
-            )
-            vax2_arrays <- prepare_vax_arrays(vax2_schedule)
-            vax2_start_day <- min(vax2_schedule$time)
-            vax2_end_day <- max(vax2_schedule$time) + 1
-
-            if (verbose) {
-                cat(sprintf("Vaccination campaign 2: days %d to %d\n", vax2_start_day, vax2_end_day))
-                cat(sprintf("  Total doses: %d over %d days\n", vax2_total_doses_hz, nrow(vax2_schedule)))
-            }
-        } else {
-            vax2_schedule <- generate_empty_vax_schedule(outbreak_start)
-            vax2_arrays <- prepare_vax_arrays(vax2_schedule)
-            vax2_start_day <- 0L
-            vax2_end_day <- 0L
+    if (length(vax2_in_outbreak) > 0) {
+        vax2_start_day <- safe_date_to_day(vax2_start_vals[vax2_in_outbreak[1]], outbreak_start)
+        vax2_end_day <- safe_date_to_day(vax2_end_vals[vax2_in_outbreak[1]], outbreak_start)
+        if (verbose && length(vax2_in_outbreak) > 1) {
+            cat("Note: Multiple vax2 campaigns found. Using first campaign in outbreak period.\n")
         }
     } else {
-        vax2_schedule <- generate_empty_vax_schedule(outbreak_start)
-        vax2_arrays <- prepare_vax_arrays(vax2_schedule)
         vax2_start_day <- 0L
         vax2_end_day <- 0L
     }
@@ -375,6 +320,8 @@ fit_hz <- function(hz_name,
         duration_sym = 14.48,
         seek_mild = 0.1,
         seek_severe = 0.4086,
+        vax2_doses_per_day = 0,
+        vax2_total_doses = 0,
         reporting_rate = 0.3520,
         fatality_treated = 0.001,
         fatality_untreated = 0.0043,
@@ -388,14 +335,7 @@ fit_hz <- function(hz_name,
         hyg_effect = hyg_effect_val,
         cati_start = cati_start_day,
         cati_end = cati_end_day,
-        cati_effect = cati_effect_val,
-        # Vaccination schedule arrays
-        vax1_schedule_time = vax1_arrays$time,
-        vax1_schedule_doses = vax1_arrays$doses,
-        n_vax1_schedule = length(vax1_arrays$time),
-        vax2_schedule_time = vax2_arrays$time,
-        vax2_schedule_doses = vax2_arrays$doses,
-        n_vax2_schedule = length(vax2_arrays$time)
+        cati_effect = cati_effect_val
     )
 
     # Add optional interventions only if active
@@ -412,12 +352,12 @@ fit_hz <- function(hz_name,
     if (vax1_start_day > 0) {
         pars_args$vax1_start <- vax1_start_day
         pars_args$vax1_end <- vax1_end_day
-        pars_args$vax1_total_doses <- sum(vax1_schedule$doses)
+        if (verbose) cat(sprintf("Vaccination campaign 1: days %d to %d\n", vax1_start_day, vax1_end_day))
     }
     if (vax2_start_day > 0) {
         pars_args$vax2_start <- vax2_start_day
         pars_args$vax2_end <- vax2_end_day
-        pars_args$vax2_total_doses <- sum(vax2_schedule$doses)
+        if (verbose) cat(sprintf("Vaccination campaign 2: days %d to %d\n", vax2_start_day, vax2_end_day))
     }
 
     pars <- do.call(chlaa_parameters, pars_args)
@@ -462,6 +402,8 @@ fit_hz <- function(hz_name,
                 duration_sym = 14.48,
                 seek_mild = 0.1,
                 seek_severe = 0.4086,
+                vax2_doses_per_day = 0,
+                vax2_total_doses = 0,
                 reporting_rate = reporting_rate,
                 fatality_treated = 0.001,
                 fatality_untreated = 0.0043,
@@ -475,13 +417,7 @@ fit_hz <- function(hz_name,
                 hyg_effect = hyg_effect_val,
                 cati_start = cati_start_day,
                 cati_end = cati_end_day,
-                cati_effect = cati_effect_val,
-                vax1_schedule_time = vax1_arrays$time,
-                vax1_schedule_doses = vax1_arrays$doses,
-                n_vax1_schedule = length(vax1_arrays$time),
-                vax2_schedule_time = vax2_arrays$time,
-                vax2_schedule_doses = vax2_arrays$doses,
-                n_vax2_schedule = length(vax2_arrays$time)
+                cati_effect = cati_effect_val
             ),
             if (chlor_start_day > 0) {
                 list(
@@ -504,8 +440,7 @@ fit_hz <- function(hz_name,
             if (vax1_start_day > 0) {
                 list(
                     vax1_start = vax1_start_day,
-                    vax1_end = vax1_end_day,
-                    vax1_total_doses = sum(vax1_schedule$doses)
+                    vax1_end = vax1_end_day
                 )
             } else {
                 NULL
@@ -513,8 +448,7 @@ fit_hz <- function(hz_name,
             if (vax2_start_day > 0) {
                 list(
                     vax2_start = vax2_start_day,
-                    vax2_end = vax2_end_day,
-                    vax2_total_doses = sum(vax2_schedule$doses)
+                    vax2_end = vax2_end_day
                 )
             } else {
                 NULL
@@ -565,22 +499,12 @@ fit_hz <- function(hz_name,
 
     # ---- 10. Exploratory fit with robust covariance ----
 
-    # Start with diagonal proposal (size depends on freeze_reporting_rate)
-    n_params <- if (freeze_reporting_rate) 3 else 4
-    explore_proposal <- matrix(0, n_params, n_params)
-
-    if (freeze_reporting_rate) {
-        # 3 parameters: log_trans_prob, log_obs_size, log_E0
-        explore_proposal[1, 1] <- 0.02 # log_trans_prob
-        explore_proposal[2, 2] <- 0.08 # log_obs_size
-        explore_proposal[3, 3] <- 0.08 # log_E0
-    } else {
-        # 4 parameters: log_trans_prob, logit_reporting_rate, log_obs_size, log_E0
-        explore_proposal[1, 1] <- 0.02 # log_trans_prob
-        explore_proposal[2, 2] <- 0.05 # logit_reporting_rate
-        explore_proposal[3, 3] <- 0.08 # log_obs_size
-        explore_proposal[4, 4] <- 0.08 # log_E0
-    }
+    # Start with diagonal proposal
+    explore_proposal <- matrix(0, 4, 4)
+    explore_proposal[1, 1] <- 0.02
+    explore_proposal[2, 2] <- 0.05
+    explore_proposal[3, 3] <- 0.08
+    explore_proposal[4, 4] <- 0.08
 
     # Safeguard: ensure positive variances
     stopifnot(all(diag(explore_proposal) > 0))

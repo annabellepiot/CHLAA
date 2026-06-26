@@ -62,12 +62,16 @@
 // [[dust2::parameter(ctc_end, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(vax1_start, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(vax1_end, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
-// [[dust2::parameter(vax1_doses_per_day, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(vax1_total_doses, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(vax2_start, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(vax2_end, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
-// [[dust2::parameter(vax2_doses_per_day, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(vax2_total_doses, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
+// [[dust2::parameter(vax1_schedule_time, type = "real_type", rank = 1, required = TRUE, constant = FALSE)]]
+// [[dust2::parameter(vax1_schedule_doses, type = "real_type", rank = 1, required = TRUE, constant = FALSE)]]
+// [[dust2::parameter(n_vax1_schedule, type = "int", rank = 0, required = TRUE, constant = TRUE)]]
+// [[dust2::parameter(vax2_schedule_time, type = "real_type", rank = 1, required = TRUE, constant = FALSE)]]
+// [[dust2::parameter(vax2_schedule_doses, type = "real_type", rank = 1, required = TRUE, constant = FALSE)]]
+// [[dust2::parameter(n_vax2_schedule, type = "int", rank = 0, required = TRUE, constant = TRUE)]]
 // [[dust2::parameter(ve_1, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(ve_2, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(vax_immunity_1, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
@@ -88,6 +92,12 @@ public:
         std::array<size_t, 33> state;
       } offset;
     } odin;
+    struct dim_type {
+      dust2::array::dimensions<1> vax1_schedule_time;
+      dust2::array::dimensions<1> vax1_schedule_doses;
+      dust2::array::dimensions<1> vax2_schedule_time;
+      dust2::array::dimensions<1> vax2_schedule_doses;
+    } dim;
     real_type N;
     real_type E0;
     real_type A0;
@@ -147,18 +157,24 @@ public:
     real_type ctc_end;
     real_type vax1_start;
     real_type vax1_end;
-    real_type vax1_doses_per_day;
     real_type vax1_total_doses;
     real_type vax2_start;
     real_type vax2_end;
-    real_type vax2_doses_per_day;
     real_type vax2_total_doses;
+    int n_vax1_schedule;
+    int n_vax2_schedule;
     real_type ve_1;
     real_type ve_2;
     real_type vax_immunity_1;
     real_type vax_immunity_2;
     real_type reporting_rate;
     real_type obs_size;
+    std::vector<real_type> vax1_schedule_time;
+    std::vector<real_type> vax1_schedule_doses;
+    std::vector<real_type> vax2_schedule_time;
+    std::vector<real_type> vax2_schedule_doses;
+    dust2::interpolate::InterpolateConstant<real_type> interpolate_vax1_doses_daily;
+    dust2::interpolate::InterpolateConstant<real_type> interpolate_vax2_doses_daily;
   };
   struct internal_state {};
   struct data_type {
@@ -169,6 +185,7 @@ public:
     return shared.odin.packing.state;
   }
   static shared_state build_shared(cpp11::list parameters) {
+    shared_state::dim_type dim;
     const real_type N = dust2::r::read_real(parameters, "N", 540000);
     const real_type E0 = dust2::r::read_real(parameters, "E0", 0);
     const real_type A0 = dust2::r::read_real(parameters, "A0", 0);
@@ -228,18 +245,32 @@ public:
     const real_type ctc_end = dust2::r::read_real(parameters, "ctc_end", 0);
     const real_type vax1_start = dust2::r::read_real(parameters, "vax1_start", 0);
     const real_type vax1_end = dust2::r::read_real(parameters, "vax1_end", 0);
-    const real_type vax1_doses_per_day = dust2::r::read_real(parameters, "vax1_doses_per_day", 0);
     const real_type vax1_total_doses = dust2::r::read_real(parameters, "vax1_total_doses", 0);
     const real_type vax2_start = dust2::r::read_real(parameters, "vax2_start", 0);
     const real_type vax2_end = dust2::r::read_real(parameters, "vax2_end", 0);
-    const real_type vax2_doses_per_day = dust2::r::read_real(parameters, "vax2_doses_per_day", 0);
     const real_type vax2_total_doses = dust2::r::read_real(parameters, "vax2_total_doses", 0);
+    const int n_vax1_schedule = dust2::r::read_int(parameters, "n_vax1_schedule");
+    const int n_vax2_schedule = dust2::r::read_int(parameters, "n_vax2_schedule");
     const real_type ve_1 = dust2::r::read_real(parameters, "ve_1", static_cast<real_type>(0.40000000000000002));
     const real_type ve_2 = dust2::r::read_real(parameters, "ve_2", static_cast<real_type>(0.69999999999999996));
     const real_type vax_immunity_1 = dust2::r::read_real(parameters, "vax_immunity_1", 180);
     const real_type vax_immunity_2 = dust2::r::read_real(parameters, "vax_immunity_2", 1095);
     const real_type reporting_rate = dust2::r::read_real(parameters, "reporting_rate", static_cast<real_type>(0.20000000000000001));
     const real_type obs_size = dust2::r::read_real(parameters, "obs_size", 25);
+    dim.vax1_schedule_time.set({static_cast<size_t>(n_vax1_schedule)});
+    dim.vax1_schedule_doses.set({static_cast<size_t>(n_vax1_schedule)});
+    dim.vax2_schedule_time.set({static_cast<size_t>(n_vax2_schedule)});
+    dim.vax2_schedule_doses.set({static_cast<size_t>(n_vax2_schedule)});
+    std::vector<real_type> vax1_schedule_time(dim.vax1_schedule_time.size);
+    dust2::r::read_real_array(parameters, dim.vax1_schedule_time, vax1_schedule_time.data(), "vax1_schedule_time", true);
+    std::vector<real_type> vax1_schedule_doses(dim.vax1_schedule_doses.size);
+    dust2::r::read_real_array(parameters, dim.vax1_schedule_doses, vax1_schedule_doses.data(), "vax1_schedule_doses", true);
+    std::vector<real_type> vax2_schedule_time(dim.vax2_schedule_time.size);
+    dust2::r::read_real_array(parameters, dim.vax2_schedule_time, vax2_schedule_time.data(), "vax2_schedule_time", true);
+    std::vector<real_type> vax2_schedule_doses(dim.vax2_schedule_doses.size);
+    dust2::r::read_real_array(parameters, dim.vax2_schedule_doses, vax2_schedule_doses.data(), "vax2_schedule_doses", true);
+    const auto interpolate_vax1_doses_daily = dust2::interpolate::InterpolateConstant(vax1_schedule_time, vax1_schedule_doses, "vax1_schedule_time", "vax1_schedule_doses");
+    const auto interpolate_vax2_doses_daily = dust2::interpolate::InterpolateConstant(vax2_schedule_time, vax2_schedule_doses, "vax2_schedule_time", "vax2_schedule_doses");
     shared_state::odin_internals_type odin;
     odin.packing.state = dust2::packing{
       {"S", {}},
@@ -277,7 +308,7 @@ public:
       {"cum_ctc_treated", {}}
     };
     odin.packing.state.copy_offset(odin.offset.state.begin());
-    return shared_state{odin, N, E0, A0, M0, Sev0, Mu0, Mt0, Sevu0, Sevt0, Ra0, Rs0, V10, V20, Du0, Dt0, C0, prop_asym, incubation_time, duration_asym, duration_sym, time_to_next_stage, p_progress_severe, immunity_asym, immunity_sym, contact_rate, trans_prob, time_to_contaminate, water_clearance_time, contam_half_sat, shed_asym, shed_mild, shed_severe, contam_scale, seek_mild, seek_severe, orc_capacity, ctc_capacity, treated_shed_mult_orc, treated_shed_mult_ctc, fatality_treated, fatality_untreated, chlor_start, chlor_end, chlor_effect, hyg_start, hyg_end, hyg_effect, lat_start, lat_end, lat_effect, cati_start, cati_end, cati_effect, orc_start, orc_end, ctc_start, ctc_end, vax1_start, vax1_end, vax1_doses_per_day, vax1_total_doses, vax2_start, vax2_end, vax2_doses_per_day, vax2_total_doses, ve_1, ve_2, vax_immunity_1, vax_immunity_2, reporting_rate, obs_size};
+    return shared_state{odin, dim, N, E0, A0, M0, Sev0, Mu0, Mt0, Sevu0, Sevt0, Ra0, Rs0, V10, V20, Du0, Dt0, C0, prop_asym, incubation_time, duration_asym, duration_sym, time_to_next_stage, p_progress_severe, immunity_asym, immunity_sym, contact_rate, trans_prob, time_to_contaminate, water_clearance_time, contam_half_sat, shed_asym, shed_mild, shed_severe, contam_scale, seek_mild, seek_severe, orc_capacity, ctc_capacity, treated_shed_mult_orc, treated_shed_mult_ctc, fatality_treated, fatality_untreated, chlor_start, chlor_end, chlor_effect, hyg_start, hyg_end, hyg_effect, lat_start, lat_end, lat_effect, cati_start, cati_end, cati_effect, orc_start, orc_end, ctc_start, ctc_end, vax1_start, vax1_end, vax1_total_doses, vax2_start, vax2_end, vax2_total_doses, n_vax1_schedule, n_vax2_schedule, ve_1, ve_2, vax_immunity_1, vax_immunity_2, reporting_rate, obs_size, vax1_schedule_time, vax1_schedule_doses, vax2_schedule_time, vax2_schedule_doses, interpolate_vax1_doses_daily, interpolate_vax2_doses_daily};
   }
   static internal_state build_internal(const shared_state& shared) {
     return internal_state{};
@@ -347,11 +378,9 @@ public:
     shared.ctc_end = dust2::r::read_real(parameters, "ctc_end", shared.ctc_end);
     shared.vax1_start = dust2::r::read_real(parameters, "vax1_start", shared.vax1_start);
     shared.vax1_end = dust2::r::read_real(parameters, "vax1_end", shared.vax1_end);
-    shared.vax1_doses_per_day = dust2::r::read_real(parameters, "vax1_doses_per_day", shared.vax1_doses_per_day);
     shared.vax1_total_doses = dust2::r::read_real(parameters, "vax1_total_doses", shared.vax1_total_doses);
     shared.vax2_start = dust2::r::read_real(parameters, "vax2_start", shared.vax2_start);
     shared.vax2_end = dust2::r::read_real(parameters, "vax2_end", shared.vax2_end);
-    shared.vax2_doses_per_day = dust2::r::read_real(parameters, "vax2_doses_per_day", shared.vax2_doses_per_day);
     shared.vax2_total_doses = dust2::r::read_real(parameters, "vax2_total_doses", shared.vax2_total_doses);
     shared.ve_1 = dust2::r::read_real(parameters, "ve_1", shared.ve_1);
     shared.ve_2 = dust2::r::read_real(parameters, "ve_2", shared.ve_2);
@@ -359,6 +388,12 @@ public:
     shared.vax_immunity_2 = dust2::r::read_real(parameters, "vax_immunity_2", shared.vax_immunity_2);
     shared.reporting_rate = dust2::r::read_real(parameters, "reporting_rate", shared.reporting_rate);
     shared.obs_size = dust2::r::read_real(parameters, "obs_size", shared.obs_size);
+    dust2::r::read_real_array(parameters, shared.dim.vax1_schedule_time, shared.vax1_schedule_time.data(), "vax1_schedule_time", false);
+    dust2::r::read_real_array(parameters, shared.dim.vax1_schedule_doses, shared.vax1_schedule_doses.data(), "vax1_schedule_doses", false);
+    dust2::r::read_real_array(parameters, shared.dim.vax2_schedule_time, shared.vax2_schedule_time.data(), "vax2_schedule_time", false);
+    dust2::r::read_real_array(parameters, shared.dim.vax2_schedule_doses, shared.vax2_schedule_doses.data(), "vax2_schedule_doses", false);
+    shared.interpolate_vax1_doses_daily = dust2::interpolate::InterpolateConstant(shared.vax1_schedule_time, shared.vax1_schedule_doses, "vax1_schedule_time", "vax1_schedule_doses");
+    shared.interpolate_vax2_doses_daily = dust2::interpolate::InterpolateConstant(shared.vax2_schedule_time, shared.vax2_schedule_doses, "vax2_schedule_time", "vax2_schedule_doses");
   }
   static void update_internal(const shared_state& shared, internal_state& internal) {
   }
@@ -468,16 +503,12 @@ public:
     const real_type wane_Rs = monty::random::binomial<real_type>(rng_state, Rs, p_wane_Rs);
     const real_type wane_V1 = monty::random::binomial<real_type>(rng_state, V1, p_wane_V1);
     const real_type wane_V2 = monty::random::binomial<real_type>(rng_state, V2, p_wane_V2);
-    const real_type vax1_cap_step = monty::math::floor<real_type>(vax1_active * shared.vax1_doses_per_day * dt);
-    const real_type vax2_cap_step = monty::math::floor<real_type>(vax2_active * shared.vax2_doses_per_day * dt);
     const real_type lambda = trans_mult * (p2p_force + env_force);
     const real_type new_A = monty::random::binomial<real_type>(rng_state, new_I, shared.prop_asym);
     const real_type seek_M = monty::random::binomial<real_type>(rng_state, prog_M, shared.seek_mild);
     const real_type seek_Sev = monty::random::binomial<real_type>(rng_state, prog_Sev, shared.seek_severe);
     const real_type death_Sevu = monty::random::binomial<real_type>(rng_state, leave_Sevu, shared.fatality_untreated);
     const real_type death_Sevt = monty::random::binomial<real_type>(rng_state, leave_Sevt, shared.fatality_treated);
-    const real_type vax1_admin = monty::math::min<real_type>(S, monty::math::min<real_type>(vax1_remain, vax1_cap_step));
-    const real_type vax2_admin = monty::math::min<real_type>(V1, monty::math::min<real_type>(vax2_remain, vax2_cap_step));
     const real_type shed_cfu = shed_mult * (shared.shed_asym * A + shared.shed_mild * (M + Mu) + shared.shed_mild * shared.treated_shed_mult_orc * Mt + shared.shed_severe * (Sev + Sevu) + shared.shed_severe * shared.treated_shed_mult_ctc * Sevt);
     const real_type p_inf = 1 - monty::math::exp<real_type>(-lambda * dt);
     const real_type new_symp = new_I - new_A;
@@ -486,15 +517,23 @@ public:
     const real_type rec_Sevu = leave_Sevu - death_Sevu;
     const real_type rec_Sevt = leave_Sevt - death_Sevt;
     const real_type shed_index = shed_cfu / shared.contam_scale;
+    const real_type vax1_doses_daily = shared.interpolate_vax1_doses_daily.eval(time);
+    const real_type vax2_doses_daily = shared.interpolate_vax2_doses_daily.eval(time);
     const real_type new_E_S = monty::random::binomial<real_type>(rng_state, S, p_inf);
     const real_type new_E_V1 = monty::random::binomial<real_type>(rng_state, V1, monty::math::min<real_type>(1, p_inf * (1 - shared.ve_1)));
     const real_type new_E_V2 = monty::random::binomial<real_type>(rng_state, V2, monty::math::min<real_type>(1, p_inf * (1 - shared.ve_2)));
     const real_type new_Sev = monty::random::binomial<real_type>(rng_state, new_symp, shared.p_progress_severe);
     const real_type to_Mu = prog_M - treat_orc;
     const real_type to_Sevu = prog_Sev - treat_ctc;
+    const real_type vax1_daily_doses = (vax1_active > 0 ? vax1_doses_daily : 0);
+    const real_type vax2_daily_doses = (vax2_active > 0 ? vax2_doses_daily : 0);
     const real_type dC = (shed_index / monty::math::max<real_type>(static_cast<real_type>(1.0000000000000001e-09), shared.time_to_contaminate)) - (C / monty::math::max<real_type>(static_cast<real_type>(1.0000000000000001e-09), shared.water_clearance_time));
     const real_type new_E = new_E_S + new_E_V1 + new_E_V2;
     const real_type new_M = new_symp - new_Sev;
+    const real_type vax1_cap_step = monty::math::floor<real_type>(vax1_daily_doses * dt);
+    const real_type vax2_cap_step = monty::math::floor<real_type>(vax2_daily_doses * dt);
+    const real_type vax1_admin = monty::math::min<real_type>(S, monty::math::min<real_type>(vax1_remain, vax1_cap_step));
+    const real_type vax2_admin = monty::math::min<real_type>(V1, monty::math::min<real_type>(vax2_remain, vax2_cap_step));
     state_next[15] = monty::math::max<real_type>(0, C + dt * dC);
     state_next[0] = monty::math::max<real_type>(0, S - new_E_S - vax1_admin + wane_Ra + wane_Rs + wane_V1 + wane_V2);
     state_next[1] = E + new_E - new_I;

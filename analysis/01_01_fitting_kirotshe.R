@@ -746,7 +746,6 @@ parameter_summary(
 # The dashed lines mark the synthetic truth.
 
 
-
 p_synth_det_trace <- chlaa_plot_trace(
   synthetic_det,
   parameters = natural_fit_names,

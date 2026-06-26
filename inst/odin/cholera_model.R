@@ -82,13 +82,29 @@ ctc_end <- parameter(0.0)
 # Vaccination campaigns
 vax1_start <- parameter(0.0)
 vax1_end <- parameter(0.0)
-vax1_doses_per_day <- parameter(0.0)
 vax1_total_doses <- parameter(0.0)
 
 vax2_start <- parameter(0.0)
 vax2_end <- parameter(0.0)
-vax2_doses_per_day <- parameter(0.0)
 vax2_total_doses <- parameter(0.0)
+
+#Time-varying vaccination rates (interpolated from data)
+vax1_doses_daily <- interpolate(vax1_schedule_time, vax1_schedule_doses, "constant")
+vax2_doses_daily <- interpolate(vax2_schedule_time, vax2_schedule_doses, "constant")
+
+#Data arrays for vaccination schedule
+vax1_schedule_time <- parameter()
+vax1_schedule_doses <- parameter()
+dim(vax1_schedule_time) <- n_vax1_schedule
+dim(vax1_schedule_doses) <- n_vax1_schedule
+n_vax1_schedule <- parameter()
+
+vax2_schedule_time <- parameter()
+vax2_schedule_doses <- parameter()
+dim(vax2_schedule_time) <- n_vax2_schedule
+dim(vax2_schedule_doses) <- n_vax2_schedule
+n_vax2_schedule <- parameter()
+
 
 ve_1 <- parameter(0.4)
 ve_2 <- parameter(0.7)
@@ -230,11 +246,14 @@ wane_V1 <- Binomial(V1, p_wane_V1)
 wane_V2 <- Binomial(V2, p_wane_V2)
 
 # Vaccination administration (bounded by supply and eligible people)
-vax1_cap_step <- floor(vax1_active * vax1_doses_per_day * dt)
+# Use interpolated daily doses instead of constant rate
+vax1_daily_doses <- if (vax1_active > 0) vax1_doses_daily else 0.0
+vax1_cap_step <- floor(vax1_daily_doses * dt)
 vax1_remain <- max(0, vax1_total_doses - cum_vax1)
 vax1_admin <- min(S, min(vax1_remain, vax1_cap_step))
 
-vax2_cap_step <- floor(vax2_active * vax2_doses_per_day * dt)
+vax2_daily_doses <- if (vax2_active > 0) vax2_doses_daily else 0.0
+vax2_cap_step <- floor(vax2_daily_doses * dt)
 vax2_remain <- max(0, vax2_total_doses - cum_vax2)
 vax2_admin <- min(V1, min(vax2_remain, vax2_cap_step))
 
