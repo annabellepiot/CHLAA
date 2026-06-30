@@ -78,6 +78,8 @@
 // [[dust2::parameter(vax_immunity_2, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(reporting_rate, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(obs_size, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
+// [[dust2::parameter(death_reporting_rate, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
+// [[dust2::parameter(obs_size_deaths, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 class cholera_model {
 public:
   cholera_model() = delete;
@@ -169,6 +171,8 @@ public:
     real_type vax_immunity_2;
     real_type reporting_rate;
     real_type obs_size;
+    real_type death_reporting_rate;
+    real_type obs_size_deaths;
     std::vector<real_type> vax1_schedule_time;
     std::vector<real_type> vax1_schedule_doses;
     std::vector<real_type> vax2_schedule_time;
@@ -179,6 +183,7 @@ public:
   struct internal_state {};
   struct data_type {
     real_type cases;
+    real_type deaths;
     real_type obs_interval;
   };
   static dust2::packing packing_state(const shared_state& shared) {
@@ -257,6 +262,8 @@ public:
     const real_type vax_immunity_2 = dust2::r::read_real(parameters, "vax_immunity_2", 1095);
     const real_type reporting_rate = dust2::r::read_real(parameters, "reporting_rate", static_cast<real_type>(0.20000000000000001));
     const real_type obs_size = dust2::r::read_real(parameters, "obs_size", 25);
+    const real_type death_reporting_rate = dust2::r::read_real(parameters, "death_reporting_rate", static_cast<real_type>(0.5));
+    const real_type obs_size_deaths = dust2::r::read_real(parameters, "obs_size_deaths", 5);
     dim.vax1_schedule_time.set({static_cast<size_t>(n_vax1_schedule)});
     dim.vax1_schedule_doses.set({static_cast<size_t>(n_vax1_schedule)});
     dim.vax2_schedule_time.set({static_cast<size_t>(n_vax2_schedule)});
@@ -308,15 +315,16 @@ public:
       {"cum_ctc_treated", {}}
     };
     odin.packing.state.copy_offset(odin.offset.state.begin());
-    return shared_state{odin, dim, N, E0, A0, M0, Sev0, Mu0, Mt0, Sevu0, Sevt0, Ra0, Rs0, V10, V20, Du0, Dt0, C0, prop_asym, incubation_time, duration_asym, duration_sym, time_to_next_stage, p_progress_severe, immunity_asym, immunity_sym, contact_rate, trans_prob, time_to_contaminate, water_clearance_time, contam_half_sat, shed_asym, shed_mild, shed_severe, contam_scale, seek_mild, seek_severe, orc_capacity, ctc_capacity, treated_shed_mult_orc, treated_shed_mult_ctc, fatality_treated, fatality_untreated, chlor_start, chlor_end, chlor_effect, hyg_start, hyg_end, hyg_effect, lat_start, lat_end, lat_effect, cati_start, cati_end, cati_effect, orc_start, orc_end, ctc_start, ctc_end, vax1_start, vax1_end, vax1_total_doses, vax2_start, vax2_end, vax2_total_doses, n_vax1_schedule, n_vax2_schedule, ve_1, ve_2, vax_immunity_1, vax_immunity_2, reporting_rate, obs_size, vax1_schedule_time, vax1_schedule_doses, vax2_schedule_time, vax2_schedule_doses, interpolate_vax1_doses_daily, interpolate_vax2_doses_daily};
+    return shared_state{odin, dim, N, E0, A0, M0, Sev0, Mu0, Mt0, Sevu0, Sevt0, Ra0, Rs0, V10, V20, Du0, Dt0, C0, prop_asym, incubation_time, duration_asym, duration_sym, time_to_next_stage, p_progress_severe, immunity_asym, immunity_sym, contact_rate, trans_prob, time_to_contaminate, water_clearance_time, contam_half_sat, shed_asym, shed_mild, shed_severe, contam_scale, seek_mild, seek_severe, orc_capacity, ctc_capacity, treated_shed_mult_orc, treated_shed_mult_ctc, fatality_treated, fatality_untreated, chlor_start, chlor_end, chlor_effect, hyg_start, hyg_end, hyg_effect, lat_start, lat_end, lat_effect, cati_start, cati_end, cati_effect, orc_start, orc_end, ctc_start, ctc_end, vax1_start, vax1_end, vax1_total_doses, vax2_start, vax2_end, vax2_total_doses, n_vax1_schedule, n_vax2_schedule, ve_1, ve_2, vax_immunity_1, vax_immunity_2, reporting_rate, obs_size, death_reporting_rate, obs_size_deaths, vax1_schedule_time, vax1_schedule_doses, vax2_schedule_time, vax2_schedule_doses, interpolate_vax1_doses_daily, interpolate_vax2_doses_daily};
   }
   static internal_state build_internal(const shared_state& shared) {
     return internal_state{};
   }
   static data_type build_data(cpp11::list data, const shared_state& shared) {
     auto cases = dust2::r::read_real(data, "cases", NA_REAL);
+    auto deaths = dust2::r::read_real(data, "deaths", NA_REAL);
     auto obs_interval = dust2::r::read_real(data, "obs_interval", NA_REAL);
-    return data_type{cases, obs_interval};
+    return data_type{cases, deaths, obs_interval};
   }
   static void update_shared(cpp11::list parameters, shared_state& shared) {
     shared.N = dust2::r::read_real(parameters, "N", shared.N);
@@ -388,6 +396,8 @@ public:
     shared.vax_immunity_2 = dust2::r::read_real(parameters, "vax_immunity_2", shared.vax_immunity_2);
     shared.reporting_rate = dust2::r::read_real(parameters, "reporting_rate", shared.reporting_rate);
     shared.obs_size = dust2::r::read_real(parameters, "obs_size", shared.obs_size);
+    shared.death_reporting_rate = dust2::r::read_real(parameters, "death_reporting_rate", shared.death_reporting_rate);
+    shared.obs_size_deaths = dust2::r::read_real(parameters, "obs_size_deaths", shared.obs_size_deaths);
     dust2::r::read_real_array(parameters, shared.dim.vax1_schedule_time, shared.vax1_schedule_time.data(), "vax1_schedule_time", false);
     dust2::r::read_real_array(parameters, shared.dim.vax1_schedule_doses, shared.vax1_schedule_doses.data(), "vax1_schedule_doses", false);
     dust2::r::read_real_array(parameters, shared.dim.vax2_schedule_time, shared.vax2_schedule_time.data(), "vax2_schedule_time", false);
@@ -574,10 +584,14 @@ public:
   static real_type compare_data(real_type time, const real_type* state, const data_type& data, const shared_state& shared, internal_state& internal, rng_state_type& rng_state) {
     auto unless_nan = [](real_type x) { return std::isnan(x) ? 0 : x; };
     const auto inc_symptoms = state[17];
+    const auto inc_deaths = state[18];
     const auto inc_symptoms_weekly = state[22];
+    const auto inc_deaths_weekly = state[23];
     real_type odin_ll = 0;
     const real_type obs_inc_symptoms = (data.obs_interval <= static_cast<real_type>(1.5) ? inc_symptoms : inc_symptoms_weekly);
+    const real_type obs_inc_deaths = (data.obs_interval <= static_cast<real_type>(1.5) ? inc_deaths : inc_deaths_weekly);
     odin_ll += unless_nan(monty::density::negative_binomial_mu(data.cases, shared.obs_size, shared.reporting_rate * obs_inc_symptoms, true));
+    odin_ll += unless_nan(monty::density::negative_binomial_mu(data.deaths, shared.obs_size_deaths, shared.death_reporting_rate * obs_inc_deaths, true));
     return odin_ll;
   }
 };

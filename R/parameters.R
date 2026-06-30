@@ -111,7 +111,9 @@ chlaa_parameter_info <- function() {
 
     # Observation model
     .param("reporting_rate", 0.2, "fraction", "Reporting fraction for observed cases.", src),
-    .param("obs_size", 25.0, "size", "Negative binomial size parameter.", src)
+    .param("obs_size", 25.0, "size", "Negative binomial size parameter.", src),
+    .param("death_reporting_rate", 0.5, "fraction", "Reporting fraction for observed deaths.", src),
+    .param("obs_size_deaths", 5.0, "size", "Negative binomial size parameter for deaths.", src)
   )
 
   do.call(rbind, rows)
@@ -165,7 +167,7 @@ chlaa_parameters_validate <- function(pars) {
     "prop_asym", "p_progress_severe",
     "seek_mild", "seek_severe",
     "chlor_effect", "hyg_effect", "lat_effect", "cati_effect",
-    "ve_1", "ve_2", "reporting_rate",
+    "ve_1", "ve_2", "reporting_rate", "death_reporting_rate",
     "fatality_treated", "fatality_untreated"
   )
   for (nm in intersect(prob_pars, names(pars))) {
@@ -182,7 +184,7 @@ chlaa_parameters_validate <- function(pars) {
     "water_clearance_time","contam_half_sat","shed_asym","shed_mild","shed_severe",
     "contam_scale","orc_capacity","ctc_capacity",
     "vax1_doses_per_day","vax1_total_doses","vax2_doses_per_day","vax2_total_doses",
-    "vax_immunity_1","vax_immunity_2","obs_size"
+    "vax_immunity_1","vax_immunity_2","obs_size","obs_size_deaths"
   )
   for (nm in intersect(nonneg, names(pars))) {
     v <- pars[[nm]]

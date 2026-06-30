@@ -161,6 +161,44 @@ fit_hz <- function(hz_name,
     # Load vaccination data for this HZ and generate schedules with
     # empirical delivery profile (30.5%, 37.7%, 22.7%, 7.4%, 1.4%, 0.3%)
 
+    # Vaccination helper functions
+    # Note: odin2 interpolate("constant") requires the time array to cover
+    # the full simulation range, starting at or before time 0.
+    generate_vax_schedule <- function(total_doses, start_date, end_date, outbreak_start) {
+        profile <- c(0.305, 0.377, 0.227, 0.074, 0.014, 0.003)
+        n_days <- as.integer(end_date - start_date) + 1L
+        n_days <- max(n_days, 1L)
+        # Stretch or truncate profile to campaign duration
+        day_weights <- approx(seq(0, 1, length.out = length(profile)),
+            profile,
+            xout = seq(0, 1, length.out = n_days)
+        )$y
+        day_weights <- day_weights / sum(day_weights)
+        daily_doses <- round(total_doses * day_weights)
+        # Correct rounding residual
+        daily_doses[which.max(daily_doses)] <- daily_doses[which.max(daily_doses)] +
+            (total_doses - sum(daily_doses))
+        start_day <- as.integer(start_date - outbreak_start)
+        sched <- data.frame(
+            time = seq(start_day, by = 1L, length.out = n_days),
+            doses = as.numeric(daily_doses)
+        )
+        # Ensure schedule covers time 0 for interpolation
+        if (min(sched$time) > 0L) {
+            sched <- rbind(data.frame(time = 0L, doses = 0), sched)
+        }
+        sched
+    }
+
+    generate_empty_vax_schedule <- function(outbreak_start) {
+        # Need at least 2 time points for odin2 interpolate
+        data.frame(time = c(0L, 1L), doses = c(0, 0))
+    }
+
+    prepare_vax_arrays <- function(schedule) {
+        list(time = as.integer(schedule$time), doses = as.numeric(schedule$doses))
+    }
+
     # Extract vaccination data from ocv_vaccination_dates.csv
     # Handle name variations (underscore vs hyphen vs space)
     vax_hz <- vax_dates %>%
@@ -177,9 +215,15 @@ fit_hz <- function(hz_name,
 
     vax1_campaigns <- vax_hz %>%
         filter(parameter %in% c("vax1_start", "vax1_end", "vax1_total_doses")) %>%
-        select(-dose_round) %>%
-        pivot_wider(names_from = parameter, values_from = value) %>%
-        filter(!is.na(vax1_start) & vax1_start != "NA")
+        distinct(dose_round, parameter, .keep_all = TRUE) %>%
+        pivot_wider(names_from = parameter, values_from = value, id_cols = c(healthzone, dose_round))
+
+    if (!("vax1_start" %in% names(vax1_campaigns))) {
+        vax1_campaigns <- vax1_campaigns[0, ]
+    } else {
+        vax1_campaigns <- vax1_campaigns %>%
+            filter(!is.na(vax1_start) & vax1_start != "NA")
+    }
 
     # Generate vax1 schedule
     if (nrow(vax1_campaigns) > 0 && !is.na(vax1_total_doses_hz) && vax1_total_doses_hz > 0) {
@@ -203,7 +247,8 @@ fit_hz <- function(hz_name,
             if (verbose) {
                 cat(sprintf("Vaccination campaign 1: days %d to %d\n", vax1_start_day, vax1_end_day))
                 cat(sprintf("  Total doses: %d over %d days\n", vax1_total_doses_hz, nrow(vax1_schedule)))
-                cat(sprintf("  Daily range: %.0f - %.0f doses\n",
+                cat(sprintf(
+                    "  Daily range: %.0f - %.0f doses\n",
                     min(vax1_schedule$doses), max(vax1_schedule$doses)
                 ))
             }
@@ -229,9 +274,15 @@ fit_hz <- function(hz_name,
 
     vax2_campaigns <- vax_hz %>%
         filter(parameter %in% c("vax2_start", "vax2_end", "vax2_total_doses")) %>%
-        select(-dose_round) %>%
-        pivot_wider(names_from = parameter, values_from = value) %>%
-        filter(!is.na(vax2_start) & vax2_start != "NA")
+        distinct(dose_round, parameter, .keep_all = TRUE) %>%
+        pivot_wider(names_from = parameter, values_from = value, id_cols = c(healthzone, dose_round))
+
+    if (!("vax2_start" %in% names(vax2_campaigns))) {
+        vax2_campaigns <- vax2_campaigns[0, ]
+    } else {
+        vax2_campaigns <- vax2_campaigns %>%
+            filter(!is.na(vax2_start) & vax2_start != "NA")
+    }
 
     # Generate vax2 schedule
     if (nrow(vax2_campaigns) > 0 && !is.na(vax2_total_doses_hz) && vax2_total_doses_hz > 0) {
@@ -272,7 +323,10 @@ fit_hz <- function(hz_name,
 
     hz_weekly <- idsr %>%
         filter(hz == hz_name) %>%
-        mutate(date = as.Date(date)) %>%
+        mutate(
+            date = as.Date(date),
+            deaths = replace_na(deaths, 0L)
+        ) %>%
         select(date, year, week, cases, deaths, population)
 
     hz_outbreak <- hz_weekly %>%
@@ -290,11 +344,11 @@ fit_hz <- function(hz_name,
     # Weekly time points at 7-day intervals (matching zero_every = 7 accumulator)
     hz_data_weekly <- hz_outbreak %>%
         mutate(time = seq_len(n()) * 7L) %>%
-        select(time, date, cases) %>%
+        select(time, date, cases, deaths) %>%
         arrange(time)
 
-    natural_fit_names <- c("trans_prob", "reporting_rate", "obs_size", "E0")
-    fit_names <- c("log_trans_prob", "logit_reporting_rate", "log_obs_size", "log_E0")
+    natural_fit_names <- c("trans_prob", "reporting_rate", "obs_size", "E0", "seek_severe", "contact_rate")
+    fit_names <- c("log_trans_prob", "logit_reporting_rate", "log_obs_size", "log_E0", "logit_seek_severe", "log_contact_rate")
     freeze_reporting_rate <- TRUE
 
     parameter_summary <- function(fit, burnin = 0.25) {
@@ -354,10 +408,10 @@ fit_hz <- function(hz_name,
         E0_val <- ceiling(seed_row$cases / expected_reporting_rate)
     } else {
         # Fallback: use early outbreak data
-        E0_val <- ceiling(max(3, hz_outbreak$cases[1]) / expected_reporting_rate)
+        E0_val <- ceiling(max(5, hz_outbreak$cases[1]) / expected_reporting_rate)
     }
 
-    E0_val <- max(3, E0_val) # Ensure minimum of 3
+    E0_val <- max(5, E0_val) # Ensure minimum of 5 (avoids prior boundary)
 
     if (verbose) cat(sprintf("Initial seeding: E0=%d\n", E0_val))
 
@@ -369,16 +423,18 @@ fit_hz <- function(hz_name,
         E0 = E0_val,
         M0 = 0,
         immunity_asym = 280,
-        contact_rate = 0,
+        contact_rate = 5.0,
         trans_prob = 0.003225,
         incubation_time = 4.845,
         duration_sym = 14.48,
         seek_mild = 0.1,
-        seek_severe = 0.4086,
+        seek_severe = 0.4,
         reporting_rate = 0.3520,
-        fatality_treated = 0.001,
-        fatality_untreated = 0.0043,
+        fatality_treated = 0.0021,
+        fatality_untreated = 0.5,
         obs_size = 30,
+        death_reporting_rate = 0.5,
+        obs_size_deaths = 1.0,
         orc_start = orc_start_day,
         orc_end = orc_end_day,
         ctc_start = ctc_start_day,
@@ -388,14 +444,7 @@ fit_hz <- function(hz_name,
         hyg_effect = hyg_effect_val,
         cati_start = cati_start_day,
         cati_end = cati_end_day,
-        cati_effect = cati_effect_val,
-        # Vaccination schedule arrays
-        vax1_schedule_time = vax1_arrays$time,
-        vax1_schedule_doses = vax1_arrays$doses,
-        n_vax1_schedule = length(vax1_arrays$time),
-        vax2_schedule_time = vax2_arrays$time,
-        vax2_schedule_doses = vax2_arrays$doses,
-        n_vax2_schedule = length(vax2_arrays$time)
+        cati_effect = cati_effect_val
     )
 
     # Add optional interventions only if active
@@ -422,16 +471,30 @@ fit_hz <- function(hz_name,
 
     pars <- do.call(chlaa_parameters, pars_args)
 
+    # Append vaccination schedule arrays (odin-level parameters, not in chlaa_parameter_info)
+    pars$vax1_schedule_time <- vax1_arrays$time
+    pars$vax1_schedule_doses <- vax1_arrays$doses
+    pars$n_vax1_schedule <- length(vax1_arrays$time)
+    pars$vax2_schedule_time <- vax2_arrays$time
+    pars$vax2_schedule_doses <- vax2_arrays$doses
+    pars$n_vax2_schedule <- length(vax2_arrays$time)
+
     add_transformed_values <- function(pars, freeze_reporting_rate = FALSE) {
         pars$log_trans_prob <- log(pars$trans_prob)
         if (!freeze_reporting_rate) pars$logit_reporting_rate <- qlogis(pars$reporting_rate)
         pars$log_obs_size <- log(pars$obs_size)
         pars$log_E0 <- log(pars$E0)
+        pars$logit_seek_severe <- qlogis(pars$seek_severe)
+        pars$log_contact_rate <- log(pars$contact_rate)
         pars
     }
 
     make_packer <- function(pars, freeze_reporting_rate = FALSE) {
-        fit_names_use <- if (freeze_reporting_rate) c("log_trans_prob", "log_obs_size", "log_E0") else fit_names
+        fit_names_use <- if (freeze_reporting_rate) {
+            c("log_trans_prob", "log_obs_size", "log_E0", "logit_seek_severe", "log_contact_rate")
+        } else {
+            fit_names
+        }
         fixed <- pars[setdiff(names(pars), c(fit_names_use, natural_fit_names))]
         monty::monty_packer(
             scalar = fit_names_use,
@@ -440,7 +503,9 @@ fit_hz <- function(hz_name,
                 out <- list(
                     trans_prob = exp(p$log_trans_prob),
                     obs_size = exp(p$log_obs_size),
-                    E0 = exp(p$log_E0)
+                    E0 = exp(p$log_E0),
+                    seek_severe = plogis(p$logit_seek_severe),
+                    contact_rate = exp(p$log_contact_rate)
                 )
                 if (!freeze_reporting_rate) out$reporting_rate <- plogis(p$logit_reporting_rate)
                 out
@@ -448,7 +513,9 @@ fit_hz <- function(hz_name,
         )
     }
 
-    make_start <- function(trans_prob, reporting_rate, obs_size, E0, freeze_reporting_rate = FALSE) {
+    make_start <- function(trans_prob, reporting_rate, obs_size, E0,
+                           seek_severe = 0.4, contact_rate = 5.0,
+                           freeze_reporting_rate = FALSE) {
         start_args <- c(
             list(
                 N = pop_hz,
@@ -456,16 +523,18 @@ fit_hz <- function(hz_name,
                 E0 = E0,
                 M0 = 0,
                 immunity_asym = 280,
-                contact_rate = 0,
+                contact_rate = contact_rate,
                 trans_prob = trans_prob,
                 incubation_time = 4.845,
                 duration_sym = 14.48,
                 seek_mild = 0.1,
-                seek_severe = 0.4086,
+                seek_severe = seek_severe,
                 reporting_rate = reporting_rate,
-                fatality_treated = 0.001,
-                fatality_untreated = 0.0043,
+                fatality_treated = 0.0021,
+                fatality_untreated = 0.5,
                 obs_size = obs_size,
+                death_reporting_rate = 0.5,
+                obs_size_deaths = 1.0,
                 orc_start = orc_start_day,
                 orc_end = orc_end_day,
                 ctc_start = ctc_start_day,
@@ -475,13 +544,7 @@ fit_hz <- function(hz_name,
                 hyg_effect = hyg_effect_val,
                 cati_start = cati_start_day,
                 cati_end = cati_end_day,
-                cati_effect = cati_effect_val,
-                vax1_schedule_time = vax1_arrays$time,
-                vax1_schedule_doses = vax1_arrays$doses,
-                n_vax1_schedule = length(vax1_arrays$time),
-                vax2_schedule_time = vax2_arrays$time,
-                vax2_schedule_doses = vax2_arrays$doses,
-                n_vax2_schedule = length(vax2_arrays$time)
+                cati_effect = cati_effect_val
             ),
             if (chlor_start_day > 0) {
                 list(
@@ -521,7 +584,15 @@ fit_hz <- function(hz_name,
             }
         )
 
-        do.call(chlaa_parameters, start_args) |> add_transformed_values(freeze_reporting_rate = freeze_reporting_rate)
+        out <- do.call(chlaa_parameters, start_args)
+        # Append vaccination schedule arrays (odin-level, not in chlaa_parameter_info)
+        out$vax1_schedule_time <- vax1_arrays$time
+        out$vax1_schedule_doses <- vax1_arrays$doses
+        out$n_vax1_schedule <- length(vax1_arrays$time)
+        out$vax2_schedule_time <- vax2_arrays$time
+        out$vax2_schedule_doses <- vax2_arrays$doses
+        out$n_vax2_schedule <- length(vax2_arrays$time)
+        add_transformed_values(out, freeze_reporting_rate = freeze_reporting_rate)
     }
 
     fit_prior_full <- monty::monty_dsl(
@@ -529,7 +600,9 @@ fit_hz <- function(hz_name,
             log_trans_prob ~ Uniform(-9.210340, -4.605170)
             logit_reporting_rate ~ Uniform(-2.944439, 1.386294)
             log_obs_size ~ Uniform(0, 5.703782)
-            log_E0 ~ Uniform(1.609438, 7.600902)
+            log_E0 ~ Uniform(1.386294, 7.600902)
+            logit_seek_severe ~ Uniform(-2.944439, 2.944439)
+            log_contact_rate ~ Uniform(-2.302585, 3.912023)
         },
         gradient = FALSE
     )
@@ -538,21 +611,23 @@ fit_hz <- function(hz_name,
         {
             log_trans_prob ~ Uniform(-9.210340, -4.605170)
             log_obs_size ~ Uniform(0, 5.703782)
-            log_E0 ~ Uniform(1.609438, 7.600902)
+            log_E0 ~ Uniform(1.386294, 7.600902)
+            logit_seek_severe ~ Uniform(-2.944439, 2.944439)
+            log_contact_rate ~ Uniform(-2.302585, 3.912023)
         },
         gradient = FALSE
     )
 
     fit_starts_full <- list(
-        make_start(0.003225, 0.3520, 30, E0_val),
-        make_start(1.6e-3, 0.12, 20, max(5, round(E0_val * 0.5))),
-        make_start(4.0e-4, 0.70, 200, max(5, round(E0_val * 1.5)))
+        make_start(0.003225, 0.3520, 30, E0_val, seek_severe = 0.4, contact_rate = 5.0),
+        make_start(1.6e-3, 0.12, 20, max(5, round(E0_val * 0.5)), seek_severe = 0.2, contact_rate = 2.0),
+        make_start(4.0e-4, 0.70, 200, max(5, round(E0_val * 1.5)), seek_severe = 0.6, contact_rate = 10.0)
     )
 
     fit_starts_freeze <- list(
-        make_start(0.003225, 0.35, 30, E0_val, freeze_reporting_rate = TRUE),
-        make_start(1.6e-3, 0.35, 20, max(5, round(E0_val * 0.5)), freeze_reporting_rate = TRUE),
-        make_start(4.0e-4, 0.35, 200, max(5, round(E0_val * 1.5)), freeze_reporting_rate = TRUE)
+        make_start(0.003225, 0.35, 30, E0_val, seek_severe = 0.4, contact_rate = 5.0, freeze_reporting_rate = TRUE),
+        make_start(1.6e-3, 0.35, 20, max(5, round(E0_val * 0.5)), seek_severe = 0.2, contact_rate = 2.0, freeze_reporting_rate = TRUE),
+        make_start(4.0e-4, 0.35, 200, max(5, round(E0_val * 1.5)), seek_severe = 0.6, contact_rate = 10.0, freeze_reporting_rate = TRUE)
     )
 
     fit_prior_stage1 <- if (freeze_reporting_rate) fit_prior_freeze else fit_prior_full
@@ -561,25 +636,29 @@ fit_hz <- function(hz_name,
 
     # ---- 9. Prepare fit data ----
 
-    fit_data <- data.frame(time = hz_data_weekly$time, cases = hz_data_weekly$cases)
+    fit_data <- data.frame(time = hz_data_weekly$time, cases = hz_data_weekly$cases, deaths = hz_data_weekly$deaths)
 
     # ---- 10. Exploratory fit with robust covariance ----
 
     # Start with diagonal proposal (size depends on freeze_reporting_rate)
-    n_params <- if (freeze_reporting_rate) 3 else 4
+    n_params <- if (freeze_reporting_rate) 5 else 6
     explore_proposal <- matrix(0, n_params, n_params)
 
     if (freeze_reporting_rate) {
-        # 3 parameters: log_trans_prob, log_obs_size, log_E0
+        # 5 parameters: log_trans_prob, log_obs_size, log_E0, logit_seek_severe, log_contact_rate
         explore_proposal[1, 1] <- 0.02 # log_trans_prob
         explore_proposal[2, 2] <- 0.08 # log_obs_size
         explore_proposal[3, 3] <- 0.08 # log_E0
+        explore_proposal[4, 4] <- 0.05 # logit_seek_severe
+        explore_proposal[5, 5] <- 0.05 # log_contact_rate
     } else {
-        # 4 parameters: log_trans_prob, logit_reporting_rate, log_obs_size, log_E0
+        # 6 parameters: log_trans_prob, logit_reporting_rate, log_obs_size, log_E0, logit_seek_severe, log_contact_rate
         explore_proposal[1, 1] <- 0.02 # log_trans_prob
         explore_proposal[2, 2] <- 0.05 # logit_reporting_rate
         explore_proposal[3, 3] <- 0.08 # log_obs_size
         explore_proposal[4, 4] <- 0.08 # log_E0
+        explore_proposal[5, 5] <- 0.05 # logit_seek_severe
+        explore_proposal[6, 6] <- 0.05 # log_contact_rate
     }
 
     # Safeguard: ensure positive variances
@@ -682,6 +761,18 @@ fit_hz <- function(hz_name,
             diag(apply(pooled, 2, var)) * (2.38^2 / d)
         }
     )
+
+    # If exploratory was 5-param (frozen reporting_rate) but production is 6-param,
+    # expand the proposal matrix by inserting logit_reporting_rate at position 2
+    if (freeze_reporting_rate && ncol(prod_proposal) == 5) {
+        prop6 <- matrix(0, 6, 6)
+        # Map: explore indices 1,2,3,4,5 -> production indices 1,3,4,5,6
+        idx_map <- c(1L, 3L, 4L, 5L, 6L)
+        prop6[idx_map, idx_map] <- prod_proposal
+        # Default variance for logit_reporting_rate (position 2)
+        prop6[2, 2] <- 0.05 * (2.38^2 / 6)
+        prod_proposal <- prop6
+    }
 
     if (verbose) {
         cat("\nWarm-start parameter values:\n")

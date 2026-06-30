@@ -323,8 +323,13 @@ update(cum_ctc_treated) <- cum_ctc_treated + treat_ctc
 # Observation model parameters
 reporting_rate <- parameter(0.2)
 obs_size <- parameter(25.0)
-#
+death_reporting_rate <- parameter(0.5)
+obs_size_deaths <- parameter(5.0)
+
 cases <- data()
+deaths <- data()
 obs_interval <- data()
 obs_inc_symptoms <- if (obs_interval <= 1.5) inc_symptoms else inc_symptoms_weekly
+obs_inc_deaths <- if (obs_interval <= 1.5) inc_deaths else inc_deaths_weekly
 cases ~ NegativeBinomial(mu = reporting_rate * obs_inc_symptoms, size = obs_size)
+deaths ~ NegativeBinomial(mu = death_reporting_rate * obs_inc_deaths, size = obs_size_deaths)

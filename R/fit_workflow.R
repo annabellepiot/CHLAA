@@ -25,6 +25,13 @@ chlaa_prepare_data <- function(data,
     stringsAsFactors = FALSE
   )
 
+  # Pass through deaths column if present
+  if ("deaths" %in% names(data)) {
+    out$deaths <- data[["deaths"]]
+    out$deaths[is.na(out$deaths)] <- 0L
+    out$deaths <- as.integer(round(out$deaths))
+  }
+
   if (any(!is.finite(out$time))) stop("time values must be finite numeric", call. = FALSE)
   if (any(is.na(out$cases))) stop("cases contains missing values", call. = FALSE)
   if (any(out$cases < 0)) stop("cases must be non-negative", call. = FALSE)
