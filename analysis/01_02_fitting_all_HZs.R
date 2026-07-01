@@ -877,6 +877,17 @@ fit_hz <- function(hz_name,
         dpi = 300
     )
 
+    p_dist <- chlaa_plot_parameter_distributions(
+        fit,
+        parameters = natural_fit_names,
+        burnin = 0.25,
+        scale = "natural"
+    )
+    ggsave(file.path(fig_dir, sprintf("diagnosis_%s_production_distributions.png", hz_name)),
+        p_dist,
+        width = 12, height = 8, dpi = 300
+    )
+
     # ---- 16. Posterior predictive forecast ----
 
     n_weeks <- nrow(hz_data_weekly)
