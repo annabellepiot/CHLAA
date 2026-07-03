@@ -202,7 +202,7 @@ chlaa_default_prior <- function() {
   if (!requireNamespace("monty", quietly = TRUE)) stop("monty is required for fitting", call. = FALSE)
   monty::monty_dsl({
     trans_prob ~ Uniform(0.001, 0.2)
-    contact_rate ~ Uniform(0.1, 30)
+    beta_p2p ~ Uniform(0.001, 0.5)
     incubation_time ~ Uniform(1, 10)
     duration_sym ~ Uniform(3, 30)
     reporting_rate ~ Uniform(0.01, 1.0)
@@ -220,7 +220,7 @@ chlaa_default_packer <- function(pars) {
   # Keep this order consistent with `chlaa_default_prior()` (monty uses
   # positional parameter matching).
   names_fit <- c(
-    "trans_prob", "contact_rate",
+    "trans_prob", "beta_p2p",
     "incubation_time", "duration_sym",
     "reporting_rate", "obs_size",
     "seek_severe",

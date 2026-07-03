@@ -51,7 +51,7 @@ chlaa_parameter_info <- function() {
     .param("immunity_sym", 1095.0, "days", "Immunity duration after symptomatic infection.", src),
 
     # Transmission and environment
-    .param("contact_rate", 10.01, "contacts/person/day", "Effective contact rate.", src),
+    .param("beta_p2p", 0.05, "1/day", "Person-to-person transmission rate.", src),
     .param("trans_prob", 0.127, "probability/contact", "Per-contact transmission probability.", src),
     .param("time_to_contaminate", 19.075, "days", "Time-scale for contamination dynamics.", src),
     .param("water_clearance_time", 30.0, "days", "Environmental clearance time.", src),
@@ -180,7 +180,7 @@ chlaa_parameters_validate <- function(pars) {
   nonneg <- c(
     "N","E0","A0","M0","Sev0","Mu0","Mt0","Sevu0","Sevt0","Ra0","Rs0","V10","V20","Du0","Dt0",
     "C0","incubation_time","duration_asym","duration_sym","time_to_next_stage",
-    "immunity_asym","immunity_sym","contact_rate","trans_prob","time_to_contaminate",
+    "immunity_asym","immunity_sym","beta_p2p","trans_prob","time_to_contaminate",
     "water_clearance_time","contam_half_sat","shed_asym","shed_mild","shed_severe",
     "contam_scale","orc_capacity","ctc_capacity",
     "vax1_doses_per_day","vax1_total_doses","vax2_doses_per_day","vax2_total_doses",

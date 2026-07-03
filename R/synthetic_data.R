@@ -10,7 +10,7 @@
   chlaa_parameters(
     N = 540000,
     Sev0 = 2,
-    contact_rate = 10.1,
+    beta_p2p = 0.05,
     trans_prob = 0.055,
     reporting_rate = 0.12,
     obs_size = obs_size,

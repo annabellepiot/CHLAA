@@ -37,7 +37,7 @@ immunity_asym <- parameter(180.0)
 immunity_sym <- parameter(1095.0)
 
 # Transmission + environment
-contact_rate <- parameter(10.01)
+beta_p2p <- parameter(0.05)
 trans_prob <- parameter(0.055)
 time_to_contaminate <- parameter(19.075)
 water_clearance_time <- parameter(30.0)
@@ -185,7 +185,7 @@ env_force <- trans_prob * (C / (C + contam_half_sat))
 
 # Effective infectious pool for person-to-person (simple)
 I_eff <- A + M + Sev + Mu + Mt + Sevu + Sevt
-p2p_force <- contact_rate * trans_prob * (I_eff / N)
+p2p_force <- beta_p2p * (I_eff / N)
 
 lambda <- trans_mult * (p2p_force + env_force)
 p_inf <- 1.0 - exp(-lambda * dt)
