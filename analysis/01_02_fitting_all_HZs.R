@@ -347,8 +347,8 @@ fit_hz <- function(hz_name,
         select(time, date, cases, deaths) %>%
         arrange(time)
 
-    natural_fit_names <- c("trans_prob", "reporting_rate", "obs_size", "E0", "seek_severe", "beta_p2p", "contam_half_sat")
-    fit_names <- c("log_trans_prob", "logit_reporting_rate", "log_obs_size", "log_E0", "logit_seek_severe", "log_beta_p2p", "log_contam_half_sat")
+    natural_fit_names <- c("trans_prob", "reporting_rate", "obs_size", "E0", "seek_severe", "beta_p2p")
+    fit_names <- c("log_trans_prob", "logit_reporting_rate", "log_obs_size", "log_E0", "logit_seek_severe", "log_beta_p2p")
     freeze_reporting_rate <- TRUE
 
     parameter_summary <- function(fit, burnin = 0.25) {
@@ -487,13 +487,12 @@ fit_hz <- function(hz_name,
         pars$log_E0 <- log(pars$E0)
         pars$logit_seek_severe <- qlogis(pars$seek_severe)
         pars$log_beta_p2p <- log(pars$beta_p2p)
-        pars$log_contam_half_sat <- log(pars$contam_half_sat)
         pars
     }
 
     make_packer <- function(pars, freeze_reporting_rate = FALSE) {
         fit_names_use <- if (freeze_reporting_rate) {
-            c("log_trans_prob", "log_obs_size", "log_E0", "logit_seek_severe", "log_beta_p2p", "log_contam_half_sat")
+            c("log_trans_prob", "log_obs_size", "log_E0", "logit_seek_severe", "log_beta_p2p")
         } else {
             fit_names
         }
@@ -507,8 +506,7 @@ fit_hz <- function(hz_name,
                     obs_size = exp(p$log_obs_size),
                     E0 = exp(p$log_E0),
                     seek_severe = plogis(p$logit_seek_severe),
-                    beta_p2p = exp(p$log_beta_p2p),
-                    contam_half_sat = exp(p$log_contam_half_sat)
+                    beta_p2p = exp(p$log_beta_p2p)
                 )
                 if (!freeze_reporting_rate) out$reporting_rate <- plogis(p$logit_reporting_rate)
                 out
@@ -518,7 +516,6 @@ fit_hz <- function(hz_name,
 
     make_start <- function(trans_prob, reporting_rate, obs_size, E0,
                            seek_severe = 0.4, beta_p2p = 0.05,
-                           contam_half_sat = 1.0,
                            freeze_reporting_rate = FALSE) {
         start_args <- c(
             list(
@@ -528,7 +525,7 @@ fit_hz <- function(hz_name,
                 M0 = 0,
                 immunity_asym = 280,
                 beta_p2p = beta_p2p,
-                contam_half_sat = contam_half_sat,
+                contam_half_sat = 1.0,
                 trans_prob = trans_prob,
                 incubation_time = 4.845,
                 duration_sym = 14.48,
@@ -608,7 +605,6 @@ fit_hz <- function(hz_name,
             log_E0 ~ Uniform(1.386294, 7.600902)
             logit_seek_severe ~ Uniform(-2.944439, 2.944439)
             log_beta_p2p ~ Uniform(-6.907755, -0.693147)
-            log_contam_half_sat ~ Uniform(-4.605170, 4.605170)
         },
         gradient = FALSE
     )
@@ -620,21 +616,20 @@ fit_hz <- function(hz_name,
             log_E0 ~ Uniform(1.386294, 7.600902)
             logit_seek_severe ~ Uniform(-2.944439, 2.944439)
             log_beta_p2p ~ Uniform(-6.907755, -0.693147)
-            log_contam_half_sat ~ Uniform(-4.605170, 4.605170)
         },
         gradient = FALSE
     )
 
     fit_starts_full <- list(
-        make_start(0.003225, 0.3520, 30, E0_val, seek_severe = 0.4, beta_p2p = 0.05, contam_half_sat = 1.0),
-        make_start(1.6e-3, 0.12, 20, max(5, round(E0_val * 0.5)), seek_severe = 0.2, beta_p2p = 0.01, contam_half_sat = 0.1),
-        make_start(4.0e-4, 0.70, 200, max(5, round(E0_val * 1.5)), seek_severe = 0.6, beta_p2p = 0.15, contam_half_sat = 10.0)
+        make_start(0.003225, 0.3520, 30, E0_val, seek_severe = 0.4, beta_p2p = 0.05),
+        make_start(1.6e-3, 0.12, 20, max(5, round(E0_val * 0.5)), seek_severe = 0.2, beta_p2p = 0.01),
+        make_start(4.0e-4, 0.70, 200, max(5, round(E0_val * 1.5)), seek_severe = 0.6, beta_p2p = 0.15)
     )
 
     fit_starts_freeze <- list(
-        make_start(0.003225, 0.35, 30, E0_val, seek_severe = 0.4, beta_p2p = 0.05, contam_half_sat = 1.0, freeze_reporting_rate = TRUE),
-        make_start(1.6e-3, 0.35, 20, max(5, round(E0_val * 0.5)), seek_severe = 0.2, beta_p2p = 0.01, contam_half_sat = 0.1, freeze_reporting_rate = TRUE),
-        make_start(4.0e-4, 0.35, 200, max(5, round(E0_val * 1.5)), seek_severe = 0.6, beta_p2p = 0.15, contam_half_sat = 10.0, freeze_reporting_rate = TRUE)
+        make_start(0.003225, 0.35, 30, E0_val, seek_severe = 0.4, beta_p2p = 0.05, freeze_reporting_rate = TRUE),
+        make_start(1.6e-3, 0.35, 20, max(5, round(E0_val * 0.5)), seek_severe = 0.2, beta_p2p = 0.01, freeze_reporting_rate = TRUE),
+        make_start(4.0e-4, 0.35, 200, max(5, round(E0_val * 1.5)), seek_severe = 0.6, beta_p2p = 0.15, freeze_reporting_rate = TRUE)
     )
 
     fit_prior_stage1 <- if (freeze_reporting_rate) fit_prior_freeze else fit_prior_full
@@ -648,26 +643,24 @@ fit_hz <- function(hz_name,
     # ---- 10. Exploratory fit with robust covariance ----
 
     # Start with diagonal proposal (size depends on freeze_reporting_rate)
-    n_params <- if (freeze_reporting_rate) 6 else 7
+    n_params <- if (freeze_reporting_rate) 5 else 6
     explore_proposal <- matrix(0, n_params, n_params)
 
     if (freeze_reporting_rate) {
-        # 6 parameters: log_trans_prob, log_obs_size, log_E0, logit_seek_severe, log_beta_p2p, log_contam_half_sat
+        # 5 parameters: log_trans_prob, log_obs_size, log_E0, logit_seek_severe, log_beta_p2p
         explore_proposal[1, 1] <- 0.02 # log_trans_prob
         explore_proposal[2, 2] <- 0.08 # log_obs_size
         explore_proposal[3, 3] <- 0.08 # log_E0
         explore_proposal[4, 4] <- 0.05 # logit_seek_severe
         explore_proposal[5, 5] <- 0.05 # log_beta_p2p
-        explore_proposal[6, 6] <- 0.08 # log_contam_half_sat
     } else {
-        # 7 parameters: log_trans_prob, logit_reporting_rate, log_obs_size, log_E0, logit_seek_severe, log_beta_p2p, log_contam_half_sat
+        # 6 parameters: log_trans_prob, logit_reporting_rate, log_obs_size, log_E0, logit_seek_severe, log_beta_p2p
         explore_proposal[1, 1] <- 0.02 # log_trans_prob
         explore_proposal[2, 2] <- 0.05 # logit_reporting_rate
         explore_proposal[3, 3] <- 0.08 # log_obs_size
         explore_proposal[4, 4] <- 0.08 # log_E0
         explore_proposal[5, 5] <- 0.05 # logit_seek_severe
         explore_proposal[6, 6] <- 0.05 # log_beta_p2p
-        explore_proposal[7, 7] <- 0.08 # log_contam_half_sat
     }
 
     # Safeguard: ensure positive variances
@@ -771,16 +764,16 @@ fit_hz <- function(hz_name,
         }
     )
 
-    # If exploratory was 6-param (frozen reporting_rate) but production is 7-param,
+    # If exploratory was 5-param (frozen reporting_rate) but production is 6-param,
     # expand the proposal matrix by inserting logit_reporting_rate at position 2
-    if (freeze_reporting_rate && ncol(prod_proposal) == 6) {
-        prop7 <- matrix(0, 7, 7)
-        # Map: explore indices 1,2,3,4,5,6 -> production indices 1,3,4,5,6,7
-        idx_map <- c(1L, 3L, 4L, 5L, 6L, 7L)
-        prop7[idx_map, idx_map] <- prod_proposal
+    if (freeze_reporting_rate && ncol(prod_proposal) == 5) {
+        prop6 <- matrix(0, 6, 6)
+        # Map: explore indices 1,2,3,4,5 -> production indices 1,3,4,5,6
+        idx_map <- c(1L, 3L, 4L, 5L, 6L)
+        prop6[idx_map, idx_map] <- prod_proposal
         # Default variance for logit_reporting_rate (position 2)
-        prop7[2, 2] <- 0.05 * (2.38^2 / 7)
-        prod_proposal <- prop7
+        prop6[2, 2] <- 0.05 * (2.38^2 / 6)
+        prod_proposal <- prop6
     }
 
     if (verbose) {

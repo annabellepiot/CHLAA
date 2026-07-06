@@ -1,0 +1,78 @@
+========================================
+5-Parameter Experiment
+========================================
+Job ID: 3230807[4].pbs-7
+Array Index: 4
+Health Zone: kindu
+Node: cx3-3-1
+Start Time: Mon  6 Jul 15:19:20 BST 2026
+========================================
+
+
+============================================================
+Running experiment (5-param) for: kindu 
+============================================================
+
+
+========================================
+Fitting health zone: kindu 
+========================================
+Experiment: 5-param reduced set (K fixed, reporting frozen)
+Outbreak window: 2025-02-24 to 2025-11-30 
+Vaccination campaign 1: days 0 to 147
+  Total doses: 343619 over 8 days
+Outbreak weeks: 40 
+Total weekly cases: 1644 
+Initial seeding: E0=32
+Fixed: reporting_rate=0.35, contam_half_sat=1.0
+
+=== EXPLORATORY FIT ===
+Exploratory acceptance rate: 0.3734403 
+# A tibble: 5 × 6
+  parameter           mean    sd `q2p5%` `q50%` `q97p5%`
+  <chr>              <dbl> <dbl>   <dbl>  <dbl>    <dbl>
+1 log_trans_prob    -7.56  0.676 -9.13   -7.21    -6.95 
+2 log_obs_size       0.546 0.218  0.0828  0.572    0.942
+3 log_E0             7.03  0.314  6.34    7.06     7.55 
+4 logit_seek_severe  2.55  0.341  1.79    2.64     2.93 
+5 log_beta_p2p      -4.09  1.52  -6.86   -3.89    -2.19 
+
+Warm-start parameter values:
+  log_trans_prob = -8.470444
+  log_obs_size = 0.554929
+  log_E0 = 6.899007
+  logit_seek_severe = 2.497614
+  log_beta_p2p = -2.390029
+
+=== PRODUCTION FIT ===
+Production acceptance rate: 0.1439495 
+# A tibble: 5 × 6
+  parameter           mean    sd `q2p5%` `q50%` `q97p5%`
+  <chr>              <dbl> <dbl>   <dbl>  <dbl>    <dbl>
+1 log_trans_prob    -7.31  0.529  -9.05  -7.10     -6.92
+2 log_obs_size       0.589 0.233   0.123  0.589     1.05
+3 log_E0             7.03  0.289   6.46   7.03      7.54
+4 logit_seek_severe  2.60  0.275   1.90   2.67      2.94
+5 log_beta_p2p      -4.95  1.52   -6.83  -5.50     -2.22
+
+Fit saved to: /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/output_experiment/kindu_fit.rds 
+Figures saved to: /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures_experiment 
+
+SUCCESS: Completed fitting for kindu 
+
+========================================
+Job Complete
+========================================
+Health Zone: kindu
+End Time: Mon  6 Jul 16:00:10 BST 2026
+Exit Code: 0
+========================================
+
+====================================
+CPU Time used: 00:39:29
+CPU Percent: 99%
+Memory usage: 195128kb
+Approx Power usage: 0.0078000000000000005
+Walltime usage: 00:41:15
+
+====================================
