@@ -1,0 +1,65 @@
+#!/bin/bash
+#PBS -l walltime=24:00:00
+#PBS -l select=1:ncpus=4:mem=16gb
+#PBS -J 1-12
+#PBS -N chlaa_exp5p
+#PBS -o /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/output_experiment/
+#PBS -e /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/output_experiment/
+
+# =========================================================================
+# PBS Array Job for 5-Parameter Experiment
+# =========================================================================
+# Tests whether beta_p2p is identifiable with contam_half_sat fixed and
+# reporting_rate frozen throughout.
+# =========================================================================
+
+# Activate R environment
+eval "$(~/miniforge3/bin/conda shell.bash hook)"
+conda activate Renv
+
+# Define health zones array (order must match PBS_ARRAY_INDEX)
+HZ_NAMES=(
+  "dummy"           # Index 0 (unused, PBS arrays start at 1)
+  "alunguli"        # Index 1
+  "bumbu"           # Index 2
+  "goma"            # Index 3
+  "kindu"           # Index 4
+  "kingabwa"        # Index 5
+  "kirotshe"        # Index 6
+  "kokolo"          # Index 7
+  "limete"          # Index 8
+  "maluku_i"        # Index 9
+  "ngiri_ngiri"     # Index 10
+  "nyiragongo"      # Index 11
+  "opala"           # Index 12
+)
+
+# Get the health zone name for this array index
+HZ_NAME="${HZ_NAMES[$PBS_ARRAY_INDEX]}"
+
+echo "========================================"
+echo "5-Parameter Experiment"
+echo "========================================"
+echo "Job ID: $PBS_JOBID"
+echo "Array Index: $PBS_ARRAY_INDEX"
+echo "Health Zone: $HZ_NAME"
+echo "Node: $(hostname)"
+echo "Start Time: $(date)"
+echo "========================================"
+echo ""
+
+# Run the experiment script
+Rscript /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/01_05_experiment_reduced_params.R "$HZ_NAME"
+
+EXIT_CODE=$?
+
+echo ""
+echo "========================================"
+echo "Job Complete"
+echo "========================================"
+echo "Health Zone: $HZ_NAME"
+echo "End Time: $(date)"
+echo "Exit Code: $EXIT_CODE"
+echo "========================================"
+
+exit $EXIT_CODE
