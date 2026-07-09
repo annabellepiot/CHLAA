@@ -39,6 +39,10 @@ immunity_sym <- parameter(1095.0)
 # Transmission + environment
 beta_p2p <- parameter(0.05)
 trans_prob <- parameter(0.055)
+
+# Stochastic drift parameters
+drift_volatility <- parameter(0.05) # sigma: How high the spikes can jump
+drift_reversion <- parameter(0.05)  # theta: How fast the spikes are pulled back to baseline (half-life ~14 days)
 time_to_contaminate <- parameter(19.075)
 water_clearance_time <- parameter(30.0)
 contam_half_sat <- parameter(1.0)
@@ -145,6 +149,11 @@ initial(Du) <- Du0
 initial(Dt) <- Dt0
 initial(C) <- C0
 
+# Stochastic transmission drift (OU mean-reverting process in log-space)
+initial(log_trans_drift) <- 0.0
+update(log_trans_drift) <- log_trans_drift - (drift_reversion * log_trans_drift * dt) + Normal(0.0, drift_volatility * sqrt(dt))
+trans_drift <- exp(log_trans_drift)
+
 # Incidence accumulators. The daily names are used by the scenario and
 # historical daily-data workflows. Weekly names support IDSR fitting without
 # dividing weekly counts into pseudo-daily observations.
@@ -187,7 +196,7 @@ env_force <- trans_prob * (C / (C + contam_half_sat))
 I_eff <- A + M + Sev + Mu + Mt + Sevu + Sevt
 p2p_force <- beta_p2p * (I_eff / N)
 
-lambda <- trans_mult * (p2p_force + env_force)
+lambda <- trans_drift * trans_mult * (p2p_force + env_force)
 p_inf <- 1.0 - exp(-lambda * dt)
 
 # New infections by group (susceptibility reduced in vaccinated)

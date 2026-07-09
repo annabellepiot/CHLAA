@@ -347,8 +347,8 @@ fit_hz <- function(hz_name,
         select(time, date, cases, deaths) %>%
         arrange(time)
 
-    natural_fit_names <- c("trans_prob", "reporting_rate", "obs_size", "E0", "seek_severe", "beta_p2p")
-    fit_names <- c("log_trans_prob", "logit_reporting_rate", "log_obs_size", "log_E0", "logit_seek_severe", "log_beta_p2p")
+    natural_fit_names <- c("trans_prob", "reporting_rate", "obs_size", "E0", "drift_volatility")
+    fit_names <- c("log_trans_prob", "logit_reporting_rate", "log_obs_size", "log_E0", "log_drift_volatility")
     freeze_reporting_rate <- TRUE
 
     parameter_summary <- function(fit, burnin = 0.25) {
@@ -397,7 +397,7 @@ fit_hz <- function(hz_name,
         arrange(desc(date)) %>%
         slice(1)
 
-    expected_reporting_rate <- 0.3520
+    expected_reporting_rate <- 0.10
 
     if (total_cases < 50) {
         # Small outbreak: conservative seeding
@@ -411,7 +411,8 @@ fit_hz <- function(hz_name,
         E0_val <- ceiling(max(5, hz_outbreak$cases[1]) / expected_reporting_rate)
     }
 
-    E0_val <- max(5, E0_val) # Ensure minimum of 5 (avoids prior boundary)
+    E0_val <- min(E0_val, 800) # Cap at prior upper bound
+    E0_val <- max(10, E0_val) # Ensure minimum of 10 (avoids prior boundary)
 
     if (verbose) cat(sprintf("Initial seeding: E0=%d\n", E0_val))
 
@@ -423,14 +424,16 @@ fit_hz <- function(hz_name,
         E0 = E0_val,
         M0 = 0,
         immunity_asym = 280,
-        beta_p2p = 0.05,
+        beta_p2p = 0,
         contam_half_sat = 1.0,
-        trans_prob = 0.003225,
+        drift_volatility = 0.05,
+        drift_reversion = 0.05,
+        trans_prob = 0.003225 * (300000 / pop_hz),
         incubation_time = 4.845,
         duration_sym = 14.48,
         seek_mild = 0.1,
-        seek_severe = 0.4,
-        reporting_rate = 0.3520,
+        seek_severe = 0.85,
+        reporting_rate = 0.15,
         fatality_treated = 0.0021,
         fatality_untreated = 0.5,
         obs_size = 30,
@@ -485,14 +488,13 @@ fit_hz <- function(hz_name,
         if (!freeze_reporting_rate) pars$logit_reporting_rate <- qlogis(pars$reporting_rate)
         pars$log_obs_size <- log(pars$obs_size)
         pars$log_E0 <- log(pars$E0)
-        pars$logit_seek_severe <- qlogis(pars$seek_severe)
-        pars$log_beta_p2p <- log(pars$beta_p2p)
+        pars$log_drift_volatility <- log(pars$drift_volatility)
         pars
     }
 
     make_packer <- function(pars, freeze_reporting_rate = FALSE) {
         fit_names_use <- if (freeze_reporting_rate) {
-            c("log_trans_prob", "log_obs_size", "log_E0", "logit_seek_severe", "log_beta_p2p")
+            c("log_trans_prob", "log_obs_size", "log_E0", "log_drift_volatility")
         } else {
             fit_names
         }
@@ -505,8 +507,7 @@ fit_hz <- function(hz_name,
                     trans_prob = exp(p$log_trans_prob),
                     obs_size = exp(p$log_obs_size),
                     E0 = exp(p$log_E0),
-                    seek_severe = plogis(p$logit_seek_severe),
-                    beta_p2p = exp(p$log_beta_p2p)
+                    drift_volatility = exp(p$log_drift_volatility)
                 )
                 if (!freeze_reporting_rate) out$reporting_rate <- plogis(p$logit_reporting_rate)
                 out
@@ -515,7 +516,7 @@ fit_hz <- function(hz_name,
     }
 
     make_start <- function(trans_prob, reporting_rate, obs_size, E0,
-                           seek_severe = 0.4, beta_p2p = 0.05,
+                           drift_volatility = 0.05,
                            freeze_reporting_rate = FALSE) {
         start_args <- c(
             list(
@@ -524,13 +525,15 @@ fit_hz <- function(hz_name,
                 E0 = E0,
                 M0 = 0,
                 immunity_asym = 280,
-                beta_p2p = beta_p2p,
+                beta_p2p = 0,
                 contam_half_sat = 1.0,
+                drift_volatility = drift_volatility,
+                drift_reversion = 0.05,
                 trans_prob = trans_prob,
                 incubation_time = 4.845,
                 duration_sym = 14.48,
                 seek_mild = 0.1,
-                seek_severe = seek_severe,
+                seek_severe = 0.85,
                 reporting_rate = reporting_rate,
                 fatality_treated = 0.0021,
                 fatality_untreated = 0.5,
@@ -599,37 +602,41 @@ fit_hz <- function(hz_name,
 
     fit_prior_full <- monty::monty_dsl(
         {
-            log_trans_prob ~ Uniform(-9.210340, -4.605170)
-            logit_reporting_rate ~ Uniform(-2.944439, 1.386294)
+            log_trans_prob ~ Normal(-7.600902, 1.2)
+            logit_reporting_rate ~ Uniform(-2.944439, -1.098612)
             log_obs_size ~ Uniform(0, 5.703782)
-            log_E0 ~ Uniform(1.386294, 7.600902)
-            logit_seek_severe ~ Uniform(-2.944439, 2.944439)
-            log_beta_p2p ~ Uniform(-6.907755, -0.693147)
+            log_E0 ~ Uniform(2.302585, 6.684612)
+            log_drift_volatility ~ Uniform(-4.605171, -1.203973)
         },
         gradient = FALSE
     )
 
     fit_prior_freeze <- monty::monty_dsl(
         {
-            log_trans_prob ~ Uniform(-9.210340, -4.605170)
+            log_trans_prob ~ Normal(-7.600902, 1.2)
             log_obs_size ~ Uniform(0, 5.703782)
-            log_E0 ~ Uniform(1.386294, 7.600902)
-            logit_seek_severe ~ Uniform(-2.944439, 2.944439)
-            log_beta_p2p ~ Uniform(-6.907755, -0.693147)
+            log_E0 ~ Uniform(2.302585, 6.684612)
+            log_drift_volatility ~ Uniform(-4.605171, -1.203973)
         },
         gradient = FALSE
     )
 
+    # Scale starting trans_prob by population: smaller populations need higher
+    # trans_prob to generate the same attack rate via the environmental route.
+    ref_pop <- 300000
+    tp_scale <- ref_pop / pop_hz
+    tp_starts <- c(0.003225, 1.6e-3, 4.0e-4) * tp_scale
+
     fit_starts_full <- list(
-        make_start(0.003225, 0.3520, 30, E0_val, seek_severe = 0.4, beta_p2p = 0.05),
-        make_start(1.6e-3, 0.12, 20, max(5, round(E0_val * 0.5)), seek_severe = 0.2, beta_p2p = 0.01),
-        make_start(4.0e-4, 0.70, 200, max(5, round(E0_val * 1.5)), seek_severe = 0.6, beta_p2p = 0.15)
+        make_start(tp_starts[1], 0.15, 30, E0_val, drift_volatility = 0.05),
+        make_start(tp_starts[2], 0.08, 20, max(10, round(E0_val * 0.5)), drift_volatility = 0.02),
+        make_start(tp_starts[3], 0.20, 100, min(800, max(10, round(E0_val * 1.5))), drift_volatility = 0.10)
     )
 
     fit_starts_freeze <- list(
-        make_start(0.003225, 0.35, 30, E0_val, seek_severe = 0.4, beta_p2p = 0.05, freeze_reporting_rate = TRUE),
-        make_start(1.6e-3, 0.35, 20, max(5, round(E0_val * 0.5)), seek_severe = 0.2, beta_p2p = 0.01, freeze_reporting_rate = TRUE),
-        make_start(4.0e-4, 0.35, 200, max(5, round(E0_val * 1.5)), seek_severe = 0.6, beta_p2p = 0.15, freeze_reporting_rate = TRUE)
+        make_start(tp_starts[1], 0.15, 30, E0_val, drift_volatility = 0.05, freeze_reporting_rate = TRUE),
+        make_start(tp_starts[2], 0.15, 20, max(10, round(E0_val * 0.5)), drift_volatility = 0.02, freeze_reporting_rate = TRUE),
+        make_start(tp_starts[3], 0.15, 100, min(800, max(10, round(E0_val * 1.5))), drift_volatility = 0.10, freeze_reporting_rate = TRUE)
     )
 
     fit_prior_stage1 <- if (freeze_reporting_rate) fit_prior_freeze else fit_prior_full
@@ -643,24 +650,22 @@ fit_hz <- function(hz_name,
     # ---- 10. Exploratory fit with robust covariance ----
 
     # Start with diagonal proposal (size depends on freeze_reporting_rate)
-    n_params <- if (freeze_reporting_rate) 5 else 6
+    n_params <- if (freeze_reporting_rate) 4 else 5
     explore_proposal <- matrix(0, n_params, n_params)
 
     if (freeze_reporting_rate) {
-        # 5 parameters: log_trans_prob, log_obs_size, log_E0, logit_seek_severe, log_beta_p2p
+        # 4 parameters: log_trans_prob, log_obs_size, log_E0, log_drift_volatility
         explore_proposal[1, 1] <- 0.02 # log_trans_prob
         explore_proposal[2, 2] <- 0.08 # log_obs_size
         explore_proposal[3, 3] <- 0.08 # log_E0
-        explore_proposal[4, 4] <- 0.05 # logit_seek_severe
-        explore_proposal[5, 5] <- 0.05 # log_beta_p2p
+        explore_proposal[4, 4] <- 0.05 # log_drift_volatility
     } else {
-        # 6 parameters: log_trans_prob, logit_reporting_rate, log_obs_size, log_E0, logit_seek_severe, log_beta_p2p
+        # 5 parameters: log_trans_prob, logit_reporting_rate, log_obs_size, log_E0, log_drift_volatility
         explore_proposal[1, 1] <- 0.02 # log_trans_prob
         explore_proposal[2, 2] <- 0.05 # logit_reporting_rate
         explore_proposal[3, 3] <- 0.08 # log_obs_size
         explore_proposal[4, 4] <- 0.08 # log_E0
-        explore_proposal[5, 5] <- 0.05 # logit_seek_severe
-        explore_proposal[6, 6] <- 0.05 # log_beta_p2p
+        explore_proposal[5, 5] <- 0.05 # log_drift_volatility
     }
 
     # Safeguard: ensure positive variances
@@ -760,21 +765,24 @@ fit_hz <- function(hz_name,
         error = function(e) {
             # Fallback to scaled diagonal from exploratory run
             if (verbose) cat("Using diagonal proposal (covariance learning failed).\n")
-            diag(apply(pooled, 2, var)) * (2.38^2 / d)
+            diag(pmax(apply(pooled, 2, var), 1e-6)) * (2.38^2 / d)
         }
     )
 
-    # If exploratory was 5-param (frozen reporting_rate) but production is 6-param,
+    # If exploratory was freeze-mode (frozen reporting_rate) but production is full,
     # expand the proposal matrix by inserting logit_reporting_rate at position 2
-    if (freeze_reporting_rate && ncol(prod_proposal) == 5) {
-        prop6 <- matrix(0, 6, 6)
-        # Map: explore indices 1,2,3,4,5 -> production indices 1,3,4,5,6
-        idx_map <- c(1L, 3L, 4L, 5L, 6L)
-        prop6[idx_map, idx_map] <- prod_proposal
+    if (freeze_reporting_rate && ncol(prod_proposal) == 4) {
+        prop5 <- matrix(0, 5, 5)
+        # Map: explore indices 1,2,3,4 -> production indices 1,3,4,5
+        idx_map <- c(1L, 3L, 4L, 5L)
+        prop5[idx_map, idx_map] <- prod_proposal
         # Default variance for logit_reporting_rate (position 2)
-        prop6[2, 2] <- 0.05 * (2.38^2 / 6)
-        prod_proposal <- prop6
+        prop5[2, 2] <- 0.05 * (2.38^2 / 5)
+        prod_proposal <- prop5
     }
+
+    # Ensure positive-definite proposal
+    diag(prod_proposal) <- pmax(diag(prod_proposal), 1e-6)
 
     if (verbose) {
         cat("\nWarm-start parameter values:\n")
