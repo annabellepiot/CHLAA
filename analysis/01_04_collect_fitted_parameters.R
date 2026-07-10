@@ -58,7 +58,7 @@ for (fit_file in fit_files) {
 all_params <- bind_rows(parameter_summaries) %>%
   relocate(hz, total_cases, n_weeks, acceptance_rate)
 
-cat("Successfully extracted parameters from", nrow(all_params) / 4, "health zones.\n\n")
+cat("Successfully extracted parameters from", length(parameter_summaries), "health zones.\n\n")
 
 # ---- Summary statistics by parameter ----
 

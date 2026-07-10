@@ -31,8 +31,6 @@
 // [[dust2::parameter(immunity_sym, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(beta_p2p, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(trans_prob, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
-// [[dust2::parameter(drift_volatility, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
-// [[dust2::parameter(drift_reversion, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(time_to_contaminate, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(water_clearance_time, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(contam_half_sat, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
@@ -95,7 +93,7 @@ public:
         dust2::packing state;
       } packing;
       struct {
-        std::array<size_t, 34> state;
+        std::array<size_t, 33> state;
       } offset;
     } odin;
     struct dim_type {
@@ -130,8 +128,6 @@ public:
     real_type immunity_sym;
     real_type beta_p2p;
     real_type trans_prob;
-    real_type drift_volatility;
-    real_type drift_reversion;
     real_type time_to_contaminate;
     real_type water_clearance_time;
     real_type contam_half_sat;
@@ -223,8 +219,6 @@ public:
     const real_type immunity_sym = dust2::r::read_real(parameters, "immunity_sym", 1095);
     const real_type beta_p2p = dust2::r::read_real(parameters, "beta_p2p", static_cast<real_type>(0.050000000000000003));
     const real_type trans_prob = dust2::r::read_real(parameters, "trans_prob", static_cast<real_type>(0.055));
-    const real_type drift_volatility = dust2::r::read_real(parameters, "drift_volatility", static_cast<real_type>(0.050000000000000003));
-    const real_type drift_reversion = dust2::r::read_real(parameters, "drift_reversion", static_cast<real_type>(0.050000000000000003));
     const real_type time_to_contaminate = dust2::r::read_real(parameters, "time_to_contaminate", static_cast<real_type>(19.074999999999999));
     const real_type water_clearance_time = dust2::r::read_real(parameters, "water_clearance_time", 30);
     const real_type contam_half_sat = dust2::r::read_real(parameters, "contam_half_sat", 1);
@@ -304,7 +298,6 @@ public:
       {"Du", {}},
       {"Dt", {}},
       {"C", {}},
-      {"log_trans_drift", {}},
       {"inc_infections", {}},
       {"inc_symptoms", {}},
       {"inc_deaths", {}},
@@ -324,7 +317,7 @@ public:
       {"cum_ctc_treated", {}}
     };
     odin.packing.state.copy_offset(odin.offset.state.begin());
-    return shared_state{odin, dim, N, E0, A0, M0, Sev0, Mu0, Mt0, Sevu0, Sevt0, Ra0, Rs0, V10, V20, Du0, Dt0, C0, prop_asym, incubation_time, duration_asym, duration_sym, time_to_next_stage, p_progress_severe, immunity_asym, immunity_sym, beta_p2p, trans_prob, drift_volatility, drift_reversion, time_to_contaminate, water_clearance_time, contam_half_sat, shed_asym, shed_mild, shed_severe, contam_scale, seek_mild, seek_severe, orc_capacity, ctc_capacity, treated_shed_mult_orc, treated_shed_mult_ctc, fatality_treated, fatality_untreated, chlor_start, chlor_end, chlor_effect, hyg_start, hyg_end, hyg_effect, lat_start, lat_end, lat_effect, cati_start, cati_end, cati_effect, orc_start, orc_end, ctc_start, ctc_end, vax1_start, vax1_end, vax1_total_doses, vax2_start, vax2_end, vax2_total_doses, n_vax1_schedule, n_vax2_schedule, ve_1, ve_2, vax_immunity_1, vax_immunity_2, reporting_rate, obs_size, death_reporting_rate, obs_size_deaths, vax1_schedule_time, vax1_schedule_doses, vax2_schedule_time, vax2_schedule_doses, interpolate_vax1_doses_daily, interpolate_vax2_doses_daily};
+    return shared_state{odin, dim, N, E0, A0, M0, Sev0, Mu0, Mt0, Sevu0, Sevt0, Ra0, Rs0, V10, V20, Du0, Dt0, C0, prop_asym, incubation_time, duration_asym, duration_sym, time_to_next_stage, p_progress_severe, immunity_asym, immunity_sym, beta_p2p, trans_prob, time_to_contaminate, water_clearance_time, contam_half_sat, shed_asym, shed_mild, shed_severe, contam_scale, seek_mild, seek_severe, orc_capacity, ctc_capacity, treated_shed_mult_orc, treated_shed_mult_ctc, fatality_treated, fatality_untreated, chlor_start, chlor_end, chlor_effect, hyg_start, hyg_end, hyg_effect, lat_start, lat_end, lat_effect, cati_start, cati_end, cati_effect, orc_start, orc_end, ctc_start, ctc_end, vax1_start, vax1_end, vax1_total_doses, vax2_start, vax2_end, vax2_total_doses, n_vax1_schedule, n_vax2_schedule, ve_1, ve_2, vax_immunity_1, vax_immunity_2, reporting_rate, obs_size, death_reporting_rate, obs_size_deaths, vax1_schedule_time, vax1_schedule_doses, vax2_schedule_time, vax2_schedule_doses, interpolate_vax1_doses_daily, interpolate_vax2_doses_daily};
   }
   static internal_state build_internal(const shared_state& shared) {
     return internal_state{};
@@ -362,8 +355,6 @@ public:
     shared.immunity_sym = dust2::r::read_real(parameters, "immunity_sym", shared.immunity_sym);
     shared.beta_p2p = dust2::r::read_real(parameters, "beta_p2p", shared.beta_p2p);
     shared.trans_prob = dust2::r::read_real(parameters, "trans_prob", shared.trans_prob);
-    shared.drift_volatility = dust2::r::read_real(parameters, "drift_volatility", shared.drift_volatility);
-    shared.drift_reversion = dust2::r::read_real(parameters, "drift_reversion", shared.drift_reversion);
     shared.time_to_contaminate = dust2::r::read_real(parameters, "time_to_contaminate", shared.time_to_contaminate);
     shared.water_clearance_time = dust2::r::read_real(parameters, "water_clearance_time", shared.water_clearance_time);
     shared.contam_half_sat = dust2::r::read_real(parameters, "contam_half_sat", shared.contam_half_sat);
@@ -447,12 +438,11 @@ public:
     state[25] = 0;
     state[26] = 0;
     state[27] = 0;
-    state[28] = 0;
-    state[29] = shared.Du0 + shared.Dt0;
+    state[28] = shared.Du0 + shared.Dt0;
+    state[29] = 0;
     state[30] = 0;
     state[31] = 0;
     state[32] = 0;
-    state[33] = 0;
   }
   static void update(real_type time, real_type dt, const real_type* state, const shared_state& shared, internal_state& internal, rng_state_type& rng_state, real_type* state_next) {
     const auto S = state[0];
@@ -471,25 +461,23 @@ public:
     const auto Du = state[13];
     const auto Dt = state[14];
     const auto C = state[15];
-    const auto log_trans_drift = state[16];
-    const auto inc_infections = state[17];
-    const auto inc_symptoms = state[18];
-    const auto inc_deaths = state[19];
-    const auto inc_vax1 = state[20];
-    const auto inc_vax2 = state[21];
-    const auto inc_infections_weekly = state[22];
-    const auto inc_symptoms_weekly = state[23];
-    const auto inc_deaths_weekly = state[24];
-    const auto inc_vax1_weekly = state[25];
-    const auto inc_vax2_weekly = state[26];
-    const auto cum_infections = state[27];
-    const auto cum_symptoms = state[28];
-    const auto cum_deaths = state[29];
-    const auto cum_vax1 = state[30];
-    const auto cum_vax2 = state[31];
-    const auto cum_orc_treated = state[32];
-    const auto cum_ctc_treated = state[33];
-    const real_type trans_drift = monty::math::exp<real_type>(log_trans_drift);
+    const auto inc_infections = state[16];
+    const auto inc_symptoms = state[17];
+    const auto inc_deaths = state[18];
+    const auto inc_vax1 = state[19];
+    const auto inc_vax2 = state[20];
+    const auto inc_infections_weekly = state[21];
+    const auto inc_symptoms_weekly = state[22];
+    const auto inc_deaths_weekly = state[23];
+    const auto inc_vax1_weekly = state[24];
+    const auto inc_vax2_weekly = state[25];
+    const auto cum_infections = state[26];
+    const auto cum_symptoms = state[27];
+    const auto cum_deaths = state[28];
+    const auto cum_vax1 = state[29];
+    const auto cum_vax2 = state[30];
+    const auto cum_orc_treated = state[31];
+    const auto cum_ctc_treated = state[32];
     const real_type I_eff = A + M + Sev + Mu + Mt + Sevu + Sevt;
     const real_type chlor_active = (time >= shared.chlor_start && time < shared.chlor_end ? 1 : 0);
     const real_type hyg_active = (time >= shared.hyg_start && time < shared.hyg_end ? 1 : 0);
@@ -527,7 +515,7 @@ public:
     const real_type wane_Rs = monty::random::binomial<real_type>(rng_state, Rs, p_wane_Rs);
     const real_type wane_V1 = monty::random::binomial<real_type>(rng_state, V1, p_wane_V1);
     const real_type wane_V2 = monty::random::binomial<real_type>(rng_state, V2, p_wane_V2);
-    const real_type lambda = trans_drift * trans_mult * (p2p_force + env_force);
+    const real_type lambda = trans_mult * (p2p_force + env_force);
     const real_type new_A = monty::random::binomial<real_type>(rng_state, new_I, shared.prop_asym);
     const real_type seek_M = monty::random::binomial<real_type>(rng_state, prog_M, shared.seek_mild);
     const real_type seek_Sev = monty::random::binomial<real_type>(rng_state, prog_Sev, shared.seek_severe);
@@ -558,7 +546,6 @@ public:
     const real_type vax2_cap_step = monty::math::floor<real_type>(vax2_daily_doses * dt);
     const real_type vax1_admin = monty::math::min<real_type>(S, monty::math::min<real_type>(vax1_remain, vax1_cap_step));
     const real_type vax2_admin = monty::math::min<real_type>(V1, monty::math::min<real_type>(vax2_remain, vax2_cap_step));
-    state_next[16] = log_trans_drift - (shared.drift_reversion * log_trans_drift * dt) + monty::random::normal<real_type>(rng_state, 0, shared.drift_volatility * monty::math::sqrt<real_type>(dt));
     state_next[15] = monty::math::max<real_type>(0, C + dt * dC);
     state_next[0] = monty::math::max<real_type>(0, S - new_E_S - vax1_admin + wane_Ra + wane_Rs + wane_V1 + wane_V2);
     state_next[1] = E + new_E - new_I;
@@ -575,33 +562,33 @@ public:
     state_next[12] = monty::math::max<real_type>(0, V2 + vax2_admin - wane_V2 - new_E_V2);
     state_next[13] = Du + death_Sevu;
     state_next[14] = Dt + death_Sevt;
-    state_next[17] = inc_infections + new_E;
-    state_next[18] = inc_symptoms + new_symp;
-    state_next[19] = inc_deaths + death_Sevu + death_Sevt;
-    state_next[20] = inc_vax1 + vax1_admin;
-    state_next[21] = inc_vax2 + vax2_admin;
-    state_next[22] = inc_infections_weekly + new_E;
-    state_next[23] = inc_symptoms_weekly + new_symp;
-    state_next[24] = inc_deaths_weekly + death_Sevu + death_Sevt;
-    state_next[25] = inc_vax1_weekly + vax1_admin;
-    state_next[26] = inc_vax2_weekly + vax2_admin;
-    state_next[27] = cum_infections + new_E;
-    state_next[28] = cum_symptoms + new_symp;
-    state_next[29] = cum_deaths + death_Sevu + death_Sevt;
-    state_next[30] = cum_vax1 + vax1_admin;
-    state_next[31] = cum_vax2 + vax2_admin;
-    state_next[32] = cum_orc_treated + treat_orc;
-    state_next[33] = cum_ctc_treated + treat_ctc;
+    state_next[16] = inc_infections + new_E;
+    state_next[17] = inc_symptoms + new_symp;
+    state_next[18] = inc_deaths + death_Sevu + death_Sevt;
+    state_next[19] = inc_vax1 + vax1_admin;
+    state_next[20] = inc_vax2 + vax2_admin;
+    state_next[21] = inc_infections_weekly + new_E;
+    state_next[22] = inc_symptoms_weekly + new_symp;
+    state_next[23] = inc_deaths_weekly + death_Sevu + death_Sevt;
+    state_next[24] = inc_vax1_weekly + vax1_admin;
+    state_next[25] = inc_vax2_weekly + vax2_admin;
+    state_next[26] = cum_infections + new_E;
+    state_next[27] = cum_symptoms + new_symp;
+    state_next[28] = cum_deaths + death_Sevu + death_Sevt;
+    state_next[29] = cum_vax1 + vax1_admin;
+    state_next[30] = cum_vax2 + vax2_admin;
+    state_next[31] = cum_orc_treated + treat_orc;
+    state_next[32] = cum_ctc_treated + treat_ctc;
   }
   static auto zero_every(const shared_state& shared) {
-    return dust2::zero_every_type<real_type>{{1, {17}}, {1, {18}}, {1, {19}}, {1, {20}}, {1, {21}}, {7, {22}}, {7, {23}}, {7, {24}}, {7, {25}}, {7, {26}}};
+    return dust2::zero_every_type<real_type>{{1, {16}}, {1, {17}}, {1, {18}}, {1, {19}}, {1, {20}}, {7, {21}}, {7, {22}}, {7, {23}}, {7, {24}}, {7, {25}}};
   }
   static real_type compare_data(real_type time, const real_type* state, const data_type& data, const shared_state& shared, internal_state& internal, rng_state_type& rng_state) {
     auto unless_nan = [](real_type x) { return std::isnan(x) ? 0 : x; };
-    const auto inc_symptoms = state[18];
-    const auto inc_deaths = state[19];
-    const auto inc_symptoms_weekly = state[23];
-    const auto inc_deaths_weekly = state[24];
+    const auto inc_symptoms = state[17];
+    const auto inc_deaths = state[18];
+    const auto inc_symptoms_weekly = state[22];
+    const auto inc_deaths_weekly = state[23];
     real_type odin_ll = 0;
     const real_type obs_inc_symptoms = (data.obs_interval <= static_cast<real_type>(1.5) ? inc_symptoms : inc_symptoms_weekly);
     const real_type obs_inc_deaths = (data.obs_interval <= static_cast<real_type>(1.5) ? inc_deaths : inc_deaths_weekly);

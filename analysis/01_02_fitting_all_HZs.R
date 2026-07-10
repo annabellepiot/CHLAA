@@ -116,6 +116,9 @@ fit_hz <- function(hz_name,
 
     if (verbose) cat("Outbreak window:", as.character(outbreak_start), "to", as.character(outbreak_end), "\n")
 
+    # Burn-in: model starts this many days before first observation (day 7)
+    time_start <- -21L
+
     # ---- 3. Helper functions ----
 
     safe_date_to_day <- function(date_str, origin) {
@@ -183,16 +186,16 @@ fit_hz <- function(hz_name,
             time = seq(start_day, by = 1L, length.out = n_days),
             doses = as.numeric(daily_doses)
         )
-        # Ensure schedule covers time 0 for interpolation
-        if (min(sched$time) > 0L) {
-            sched <- rbind(data.frame(time = 0L, doses = 0), sched)
+        # Ensure schedule covers time_start for interpolation
+        if (min(sched$time) > time_start) {
+            sched <- rbind(data.frame(time = time_start, doses = 0), sched)
         }
         sched
     }
 
-    generate_empty_vax_schedule <- function(outbreak_start) {
+    generate_empty_vax_schedule <- function() {
         # Need at least 2 time points for odin2 interpolate
-        data.frame(time = c(0L, 1L), doses = c(0, 0))
+        data.frame(time = c(time_start, time_start + 1L), doses = c(0, 0))
     }
 
     prepare_vax_arrays <- function(schedule) {
@@ -253,13 +256,13 @@ fit_hz <- function(hz_name,
                 ))
             }
         } else {
-            vax1_schedule <- generate_empty_vax_schedule(outbreak_start)
+            vax1_schedule <- generate_empty_vax_schedule()
             vax1_arrays <- prepare_vax_arrays(vax1_schedule)
             vax1_start_day <- 0L
             vax1_end_day <- 0L
         }
     } else {
-        vax1_schedule <- generate_empty_vax_schedule(outbreak_start)
+        vax1_schedule <- generate_empty_vax_schedule()
         vax1_arrays <- prepare_vax_arrays(vax1_schedule)
         vax1_start_day <- 0L
         vax1_end_day <- 0L
@@ -307,13 +310,13 @@ fit_hz <- function(hz_name,
                 cat(sprintf("  Total doses: %d over %d days\n", vax2_total_doses_hz, nrow(vax2_schedule)))
             }
         } else {
-            vax2_schedule <- generate_empty_vax_schedule(outbreak_start)
+            vax2_schedule <- generate_empty_vax_schedule()
             vax2_arrays <- prepare_vax_arrays(vax2_schedule)
             vax2_start_day <- 0L
             vax2_end_day <- 0L
         }
     } else {
-        vax2_schedule <- generate_empty_vax_schedule(outbreak_start)
+        vax2_schedule <- generate_empty_vax_schedule()
         vax2_arrays <- prepare_vax_arrays(vax2_schedule)
         vax2_start_day <- 0L
         vax2_end_day <- 0L
@@ -347,8 +350,8 @@ fit_hz <- function(hz_name,
         select(time, date, cases, deaths) %>%
         arrange(time)
 
-    natural_fit_names <- c("trans_prob", "reporting_rate", "obs_size", "E0", "drift_volatility")
-    fit_names <- c("log_trans_prob", "logit_reporting_rate", "log_obs_size", "log_E0", "log_drift_volatility")
+    natural_fit_names <- c("trans_prob", "reporting_rate", "obs_size", "E0")
+    fit_names <- c("log_trans_prob", "logit_reporting_rate", "log_obs_size", "log_E0")
     freeze_reporting_rate <- TRUE
 
     parameter_summary <- function(fit, burnin = 0.25) {
@@ -426,8 +429,6 @@ fit_hz <- function(hz_name,
         immunity_asym = 280,
         beta_p2p = 0,
         contam_half_sat = 1.0,
-        drift_volatility = 0.05,
-        drift_reversion = 0.05,
         trans_prob = 0.003225 * (300000 / pop_hz),
         incubation_time = 4.845,
         duration_sym = 14.48,
@@ -488,13 +489,12 @@ fit_hz <- function(hz_name,
         if (!freeze_reporting_rate) pars$logit_reporting_rate <- qlogis(pars$reporting_rate)
         pars$log_obs_size <- log(pars$obs_size)
         pars$log_E0 <- log(pars$E0)
-        pars$log_drift_volatility <- log(pars$drift_volatility)
         pars
     }
 
     make_packer <- function(pars, freeze_reporting_rate = FALSE) {
         fit_names_use <- if (freeze_reporting_rate) {
-            c("log_trans_prob", "log_obs_size", "log_E0", "log_drift_volatility")
+            c("log_trans_prob", "log_obs_size", "log_E0")
         } else {
             fit_names
         }
@@ -506,8 +506,7 @@ fit_hz <- function(hz_name,
                 out <- list(
                     trans_prob = exp(p$log_trans_prob),
                     obs_size = exp(p$log_obs_size),
-                    E0 = exp(p$log_E0),
-                    drift_volatility = exp(p$log_drift_volatility)
+                    E0 = exp(p$log_E0)
                 )
                 if (!freeze_reporting_rate) out$reporting_rate <- plogis(p$logit_reporting_rate)
                 out
@@ -516,7 +515,6 @@ fit_hz <- function(hz_name,
     }
 
     make_start <- function(trans_prob, reporting_rate, obs_size, E0,
-                           drift_volatility = 0.05,
                            freeze_reporting_rate = FALSE) {
         start_args <- c(
             list(
@@ -527,8 +525,6 @@ fit_hz <- function(hz_name,
                 immunity_asym = 280,
                 beta_p2p = 0,
                 contam_half_sat = 1.0,
-                drift_volatility = drift_volatility,
-                drift_reversion = 0.05,
                 trans_prob = trans_prob,
                 incubation_time = 4.845,
                 duration_sym = 14.48,
@@ -606,7 +602,6 @@ fit_hz <- function(hz_name,
             logit_reporting_rate ~ Uniform(-2.944439, -1.098612)
             log_obs_size ~ Uniform(0, 5.703782)
             log_E0 ~ Uniform(2.302585, 6.684612)
-            log_drift_volatility ~ Uniform(-4.605171, -1.203973)
         },
         gradient = FALSE
     )
@@ -616,7 +611,6 @@ fit_hz <- function(hz_name,
             log_trans_prob ~ Normal(-7.600902, 1.2)
             log_obs_size ~ Uniform(0, 5.703782)
             log_E0 ~ Uniform(2.302585, 6.684612)
-            log_drift_volatility ~ Uniform(-4.605171, -1.203973)
         },
         gradient = FALSE
     )
@@ -628,15 +622,15 @@ fit_hz <- function(hz_name,
     tp_starts <- c(0.003225, 1.6e-3, 4.0e-4) * tp_scale
 
     fit_starts_full <- list(
-        make_start(tp_starts[1], 0.15, 30, E0_val, drift_volatility = 0.05),
-        make_start(tp_starts[2], 0.08, 20, max(10, round(E0_val * 0.5)), drift_volatility = 0.02),
-        make_start(tp_starts[3], 0.20, 100, min(800, max(10, round(E0_val * 1.5))), drift_volatility = 0.10)
+        make_start(tp_starts[1], 0.15, 30, E0_val),
+        make_start(tp_starts[2], 0.08, 20, max(10, round(E0_val * 0.5))),
+        make_start(tp_starts[3], 0.20, 100, min(800, max(10, round(E0_val * 1.5))))
     )
 
     fit_starts_freeze <- list(
-        make_start(tp_starts[1], 0.15, 30, E0_val, drift_volatility = 0.05, freeze_reporting_rate = TRUE),
-        make_start(tp_starts[2], 0.15, 20, max(10, round(E0_val * 0.5)), drift_volatility = 0.02, freeze_reporting_rate = TRUE),
-        make_start(tp_starts[3], 0.15, 100, min(800, max(10, round(E0_val * 1.5))), drift_volatility = 0.10, freeze_reporting_rate = TRUE)
+        make_start(tp_starts[1], 0.15, 30, E0_val, freeze_reporting_rate = TRUE),
+        make_start(tp_starts[2], 0.15, 20, max(10, round(E0_val * 0.5)), freeze_reporting_rate = TRUE),
+        make_start(tp_starts[3], 0.15, 100, min(800, max(10, round(E0_val * 1.5))), freeze_reporting_rate = TRUE)
     )
 
     fit_prior_stage1 <- if (freeze_reporting_rate) fit_prior_freeze else fit_prior_full
@@ -650,22 +644,20 @@ fit_hz <- function(hz_name,
     # ---- 10. Exploratory fit with robust covariance ----
 
     # Start with diagonal proposal (size depends on freeze_reporting_rate)
-    n_params <- if (freeze_reporting_rate) 4 else 5
+    n_params <- if (freeze_reporting_rate) 3 else 4
     explore_proposal <- matrix(0, n_params, n_params)
 
     if (freeze_reporting_rate) {
-        # 4 parameters: log_trans_prob, log_obs_size, log_E0, log_drift_volatility
+        # 3 parameters: log_trans_prob, log_obs_size, log_E0
         explore_proposal[1, 1] <- 0.02 # log_trans_prob
         explore_proposal[2, 2] <- 0.08 # log_obs_size
         explore_proposal[3, 3] <- 0.08 # log_E0
-        explore_proposal[4, 4] <- 0.05 # log_drift_volatility
     } else {
-        # 5 parameters: log_trans_prob, logit_reporting_rate, log_obs_size, log_E0, log_drift_volatility
+        # 4 parameters: log_trans_prob, logit_reporting_rate, log_obs_size, log_E0
         explore_proposal[1, 1] <- 0.02 # log_trans_prob
         explore_proposal[2, 2] <- 0.05 # logit_reporting_rate
         explore_proposal[3, 3] <- 0.08 # log_obs_size
         explore_proposal[4, 4] <- 0.08 # log_E0
-        explore_proposal[5, 5] <- 0.05 # log_drift_volatility
     }
 
     # Safeguard: ensure positive variances
@@ -688,7 +680,7 @@ fit_hz <- function(hz_name,
                 packer = fit_packer_stage1,
                 proposal_var = explore_proposal,
                 obs_interval = 7,
-                time_start = 0
+                time_start = time_start
             )
         },
         error = function(e) {
@@ -708,7 +700,7 @@ fit_hz <- function(hz_name,
                 packer = fit_packer_stage1,
                 proposal_var = explore_proposal,
                 obs_interval = 7,
-                time_start = 0
+                time_start = time_start
             )
         }
     )
@@ -771,14 +763,14 @@ fit_hz <- function(hz_name,
 
     # If exploratory was freeze-mode (frozen reporting_rate) but production is full,
     # expand the proposal matrix by inserting logit_reporting_rate at position 2
-    if (freeze_reporting_rate && ncol(prod_proposal) == 4) {
-        prop5 <- matrix(0, 5, 5)
-        # Map: explore indices 1,2,3,4 -> production indices 1,3,4,5
-        idx_map <- c(1L, 3L, 4L, 5L)
-        prop5[idx_map, idx_map] <- prod_proposal
+    if (freeze_reporting_rate && ncol(prod_proposal) == 3) {
+        prop4 <- matrix(0, 4, 4)
+        # Map: explore indices 1,2,3 -> production indices 1,3,4
+        idx_map <- c(1L, 3L, 4L)
+        prop4[idx_map, idx_map] <- prod_proposal
         # Default variance for logit_reporting_rate (position 2)
-        prop5[2, 2] <- 0.05 * (2.38^2 / 5)
-        prod_proposal <- prop5
+        prop4[2, 2] <- 0.05 * (2.38^2 / 4)
+        prod_proposal <- prop4
     }
 
     # Ensure positive-definite proposal
@@ -813,7 +805,7 @@ fit_hz <- function(hz_name,
                 packer = fit_packer_stage2,
                 proposal_var = prod_proposal,
                 obs_interval = 7,
-                time_start = 0
+                time_start = time_start
             )
         },
         error = function(e) {
@@ -833,7 +825,7 @@ fit_hz <- function(hz_name,
                 packer = fit_packer_stage2,
                 proposal_var = prod_proposal,
                 obs_interval = 7,
-                time_start = 0
+                time_start = time_start
             )
         }
     )

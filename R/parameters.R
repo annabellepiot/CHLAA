@@ -60,8 +60,6 @@ chlaa_parameter_info <- function() {
     .param("shed_mild", 9.5005e6, "CFU/person/day", "Shedding rate mild.", src),
     .param("shed_severe", 32.945e6, "CFU/person/day", "Shedding rate severe.", src),
     .param("contam_scale", 1.0e10, "CFU/index", "Scaling from CFU to contamination index.", src),
-    .param("drift_volatility", 0.05, "1/sqrt(day)", "Volatility of stochastic transmission drift.", src),
-    .param("drift_reversion", 0.05, "1/day", "Mean-reversion strength of OU transmission drift.", src),
 
     # Care and case management
     .param("seek_mild", 0.1, "probability", "Care seeking probability (mild).", src),
@@ -183,7 +181,7 @@ chlaa_parameters_validate <- function(pars) {
     "N","E0","A0","M0","Sev0","Mu0","Mt0","Sevu0","Sevt0","Ra0","Rs0","V10","V20","Du0","Dt0",
     "C0","incubation_time","duration_asym","duration_sym","time_to_next_stage",
     "immunity_asym","immunity_sym","beta_p2p","trans_prob","time_to_contaminate",
-    "water_clearance_time","contam_half_sat","drift_volatility","drift_reversion","shed_asym","shed_mild","shed_severe",
+    "water_clearance_time","contam_half_sat","shed_asym","shed_mild","shed_severe",
     "contam_scale","orc_capacity","ctc_capacity",
     "vax1_doses_per_day","vax1_total_doses","vax2_doses_per_day","vax2_total_doses",
     "vax_immunity_1","vax_immunity_2","obs_size","obs_size_deaths"
