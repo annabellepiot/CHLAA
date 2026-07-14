@@ -23,9 +23,15 @@ vax_dates <- read.csv(file.path(data_dir, "ocv_vaccination_dates.csv"), stringsA
 hz_rows_long <- hz_params_long %>% filter(hz == hz_name)
 
 outbreak_start <- hz_rows_long %>%
-    filter(parameter == "outbreak_start") %>% pull(value) %>% first() %>% as.Date()
+    filter(parameter == "outbreak_start") %>%
+    pull(value) %>%
+    first() %>%
+    as.Date()
 outbreak_end <- hz_rows_long %>%
-    filter(parameter == "outbreak_end") %>% pull(value) %>% first() %>% as.Date()
+    filter(parameter == "outbreak_end") %>%
+    pull(value) %>%
+    first() %>%
+    as.Date()
 
 cat("Outbreak window:", as.character(outbreak_start), "to", as.character(outbreak_end), "\n")
 
@@ -36,13 +42,20 @@ time_start <- -21L
 
 safe_date_to_day <- function(date_str, origin) {
     d <- as.Date(date_str, format = "%Y-%m-%d")
-    if (is.na(d)) return(0L)
+    if (is.na(d)) {
+        return(0L)
+    }
     as.integer(d - origin)
 }
 
 get_param <- function(param_name) {
-    val <- hz_rows_long %>% filter(parameter == param_name) %>% pull(value) %>% first()
-    if (is.null(val) || length(val) == 0) return(NA)
+    val <- hz_rows_long %>%
+        filter(parameter == param_name) %>%
+        pull(value) %>%
+        first()
+    if (is.null(val) || length(val) == 0) {
+        return(NA)
+    }
     val
 }
 
@@ -77,10 +90,14 @@ plot_case_fit <- function(fit, observed, title, seed, burnin = 0.25) {
         filter(variable == "cases") %>%
         left_join(observed %>% select(time, date), by = "time")
     ggplot() +
-        geom_ribbon(data = fit_cases, aes(date, ymin = q0p025, ymax = q0p975),
-            fill = "#6baed6", alpha = 0.25) +
-        geom_ribbon(data = fit_cases, aes(date, ymin = q0p25, ymax = q0p75),
-            fill = "#6baed6", alpha = 0.45) +
+        geom_ribbon(
+            data = fit_cases, aes(date, ymin = q0p025, ymax = q0p975),
+            fill = "#6baed6", alpha = 0.25
+        ) +
+        geom_ribbon(
+            data = fit_cases, aes(date, ymin = q0p25, ymax = q0p75),
+            fill = "#6baed6", alpha = 0.45
+        ) +
         geom_line(data = fit_cases, aes(date, q0p5), colour = "#08519c", linewidth = 0.8) +
         geom_point(data = observed, aes(date, cases), size = 1.6) +
         labs(x = NULL, y = "Weekly reported cases", title = title)
@@ -112,14 +129,18 @@ generate_vax_schedule <- function(total_doses, start_date, end_date, outbreak_st
     profile <- c(0.305, 0.377, 0.227, 0.074, 0.014, 0.003)
     n_days <- max(as.integer(end_date - start_date) + 1L, 1L)
     day_weights <- approx(seq(0, 1, length.out = length(profile)),
-        profile, xout = seq(0, 1, length.out = n_days))$y
+        profile,
+        xout = seq(0, 1, length.out = n_days)
+    )$y
     day_weights <- day_weights / sum(day_weights)
     daily_doses <- round(total_doses * day_weights)
     daily_doses[which.max(daily_doses)] <- daily_doses[which.max(daily_doses)] +
         (total_doses - sum(daily_doses))
     start_day <- as.integer(start_date - outbreak_start)
-    sched <- data.frame(time = seq(start_day, by = 1L, length.out = n_days),
-        doses = as.numeric(daily_doses))
+    sched <- data.frame(
+        time = seq(start_day, by = 1L, length.out = n_days),
+        doses = as.numeric(daily_doses)
+    )
     # Ensure schedule covers time_start for interpolation
     if (min(sched$time) > time_start) {
         sched <- rbind(data.frame(time = time_start, doses = 0), sched)
@@ -141,7 +162,10 @@ vax_hz <- vax_dates %>%
         healthzone == gsub("_", "-", hz_name))
 
 vax1_total_doses_hz <- hz_rows_long %>%
-    filter(parameter == "vax1_total_doses") %>% pull(value) %>% as.numeric() %>% first()
+    filter(parameter == "vax1_total_doses") %>%
+    pull(value) %>%
+    as.numeric() %>%
+    first()
 
 vax1_campaigns <- vax_hz %>%
     filter(parameter %in% c("vax1_start", "vax1_end", "vax1_total_doses")) %>%
@@ -167,17 +191,22 @@ if (nrow(vax1_campaigns) > 0 && !is.na(vax1_total_doses_hz) && vax1_total_doses_
     } else {
         vax1_schedule <- generate_empty_vax_schedule()
         vax1_arrays <- prepare_vax_arrays(vax1_schedule)
-        vax1_start_day <- 0L; vax1_end_day <- 0L
+        vax1_start_day <- 0L
+        vax1_end_day <- 0L
     }
 } else {
     vax1_schedule <- generate_empty_vax_schedule()
     vax1_arrays <- prepare_vax_arrays(vax1_schedule)
-    vax1_start_day <- 0L; vax1_end_day <- 0L
+    vax1_start_day <- 0L
+    vax1_end_day <- 0L
 }
 
 # Vax2
 vax2_total_doses_hz <- hz_rows_long %>%
-    filter(parameter == "vax2_total_doses") %>% pull(value) %>% as.numeric() %>% first()
+    filter(parameter == "vax2_total_doses") %>%
+    pull(value) %>%
+    as.numeric() %>%
+    first()
 
 vax2_campaigns <- vax_hz %>%
     filter(parameter %in% c("vax2_start", "vax2_end", "vax2_total_doses")) %>%
@@ -203,12 +232,14 @@ if (nrow(vax2_campaigns) > 0 && !is.na(vax2_total_doses_hz) && vax2_total_doses_
     } else {
         vax2_schedule <- generate_empty_vax_schedule()
         vax2_arrays <- prepare_vax_arrays(vax2_schedule)
-        vax2_start_day <- 0L; vax2_end_day <- 0L
+        vax2_start_day <- 0L
+        vax2_end_day <- 0L
     }
 } else {
     vax2_schedule <- generate_empty_vax_schedule()
     vax2_arrays <- prepare_vax_arrays(vax2_schedule)
-    vax2_start_day <- 0L; vax2_end_day <- 0L
+    vax2_start_day <- 0L
+    vax2_end_day <- 0L
 }
 
 # ---- 5. Weekly case data ----
@@ -226,6 +257,14 @@ pop_hz <- hz_weekly$population[1]
 total_cases <- sum(hz_outbreak$cases)
 cat("Population:", pop_hz, "\nOutbreak weeks:", nrow(hz_outbreak), "\nTotal cases:", total_cases, "\n")
 
+# Reference population for scaling contam_half_sat (Kirotshe ~516k)
+# This makes the environmental FOI depend on per-capita prevalence rather
+# than absolute case counts, so trans_prob stays comparable across zones.
+pop_ref <- 516000
+contam_half_sat_scaled <- 0.01 * (pop_hz / pop_ref)
+cat("contam_half_sat (scaled):", contam_half_sat_scaled,
+    "  (pop ratio:", round(pop_hz / pop_ref, 3), ")\n")
+
 hz_data_weekly <- hz_outbreak %>%
     mutate(time = seq_len(n()) * 7L) %>%
     select(time, date, cases, deaths) %>%
@@ -235,7 +274,10 @@ hz_data_weekly <- hz_outbreak %>%
 
 expected_reporting_rate <- 0.10
 seed_date <- outbreak_start - 14
-seed_row <- hz_weekly %>% filter(date <= seed_date) %>% arrange(desc(date)) %>% slice(1)
+seed_row <- hz_weekly %>%
+    filter(date <= seed_date) %>%
+    arrange(desc(date)) %>%
+    slice(1)
 
 if (total_cases < 50) {
     E0_val <- max(5, ceiling(mean(hz_outbreak$cases[1:min(3, nrow(hz_outbreak))]) / expected_reporting_rate))
@@ -288,7 +330,7 @@ make_start <- function(trans_prob, reporting_rate, obs_size, E0,
                        freeze_reporting_rate = FALSE) {
     pars_args <- list(
         N = pop_hz, Sev0 = 0, E0 = E0, M0 = 0,
-        immunity_asym = 280, beta_p2p = 0, contam_half_sat = 1.0,
+        immunity_asym = 280, contact_rate = 0, contam_half_sat = contam_half_sat_scaled,
         trans_prob = trans_prob, incubation_time = 4.845, duration_sym = 14.48,
         seek_mild = 0.1, seek_severe = 0.85,
         reporting_rate = reporting_rate, fatality_treated = 0.0021, fatality_untreated = 0.5,
@@ -330,23 +372,26 @@ make_start <- function(trans_prob, reporting_rate, obs_size, E0,
 
 # ---- 8. Priors and starting points ----
 
-fit_prior_full <- monty::monty_dsl({
-    log_trans_prob ~ Normal(-7.600902, 1.2)
-    logit_reporting_rate ~ Uniform(-2.944439, -1.098612)
-    log_obs_size ~ Uniform(0, 5.703782)
-    log_E0 ~ Uniform(2.302585, 6.684612)
-}, gradient = FALSE)
+fit_prior_full <- monty::monty_dsl(
+    {
+        log_trans_prob ~ Uniform(-9.21034, -4.60517) # log(1e-4) to log(1e-2)
+        logit_reporting_rate ~ Uniform(-2.751535, -0.847298) # qlogis(c(0.06, 0.30))
+        log_obs_size ~ Uniform(0, 5.703782)
+        log_E0 ~ Uniform(2.302585, 6.684612)
+    },
+    gradient = FALSE
+)
 
-fit_prior_freeze <- monty::monty_dsl({
-    log_trans_prob ~ Normal(-7.600902, 1.2)
-    log_obs_size ~ Uniform(0, 5.703782)
-    log_E0 ~ Uniform(2.302585, 6.684612)
-}, gradient = FALSE)
+fit_prior_freeze <- monty::monty_dsl(
+    {
+        log_trans_prob ~ Uniform(-9.21034, -4.60517) # log(1e-4) to log(1e-2)
+        log_obs_size ~ Uniform(0, 5.703782)
+        log_E0 ~ Uniform(2.302585, 6.684612)
+    },
+    gradient = FALSE
+)
 
-# trans_prob scaled by population
-ref_pop <- 300000
-tp_scale <- ref_pop / pop_hz
-tp_starts <- c(0.003225, 1.6e-3, 4.0e-4) * tp_scale
+tp_starts <- c(1e-3, 5e-4, 5e-3)
 
 fit_starts_full <- list(
     make_start(tp_starts[1], 0.15, 30, E0_val),
@@ -364,22 +409,24 @@ fit_prior_stage1 <- if (freeze_reporting_rate) fit_prior_freeze else fit_prior_f
 fit_starts_stage1 <- if (freeze_reporting_rate) fit_starts_freeze else fit_starts_full
 fit_packer_stage1 <- make_packer(fit_starts_stage1[[1]], freeze_reporting_rate = freeze_reporting_rate)
 
-fit_data <- data.frame(time = hz_data_weekly$time, cases = hz_data_weekly$cases,
-    deaths = hz_data_weekly$deaths)
+fit_data <- data.frame(
+    time = hz_data_weekly$time, cases = hz_data_weekly$cases,
+    deaths = hz_data_weekly$deaths
+)
 
 # ---- 9. Exploratory fit (freeze reporting_rate) ----
 
 n_params <- if (freeze_reporting_rate) 3 else 4
 explore_proposal <- matrix(0, n_params, n_params)
 if (freeze_reporting_rate) {
-    explore_proposal[1, 1] <- 0.02  # log_trans_prob
-    explore_proposal[2, 2] <- 0.08  # log_obs_size
-    explore_proposal[3, 3] <- 0.08  # log_E0
+    explore_proposal[1, 1] <- 0.02 # log_trans_prob
+    explore_proposal[2, 2] <- 0.08 # log_obs_size
+    explore_proposal[3, 3] <- 0.08 # log_E0
 } else {
-    explore_proposal[1, 1] <- 0.02  # log_trans_prob
-    explore_proposal[2, 2] <- 0.05  # logit_reporting_rate
-    explore_proposal[3, 3] <- 0.08  # log_obs_size
-    explore_proposal[4, 4] <- 0.08  # log_E0
+    explore_proposal[1, 1] <- 0.02 # log_trans_prob
+    explore_proposal[2, 2] <- 0.05 # logit_reporting_rate
+    explore_proposal[3, 3] <- 0.08 # log_obs_size
+    explore_proposal[4, 4] <- 0.08 # log_E0
 }
 
 cat("\n=== EXPLORATORY FIT ===\n")
@@ -431,16 +478,19 @@ fit_starts_stage2 <- if (freeze_reporting_rate) {
 fit_prior_stage2 <- fit_prior_full
 fit_packer_stage2 <- make_packer(fit_starts_stage2[[1]], freeze_reporting_rate = FALSE)
 
-prod_proposal <- tryCatch({
-    cov_mat <- cov(pooled) * (2.38^2 / d)
-    eig <- eigen(cov_mat, symmetric = TRUE)
-    if (any(eig$values < 1e-12) || any(!is.finite(eig$values))) stop("Degenerate covariance")
-    eig$values <- pmax(eig$values, 1e-12)
-    eig$vectors %*% diag(eig$values) %*% t(eig$vectors)
-}, error = function(e) {
-    cat("Using diagonal proposal (covariance learning failed).\n")
-    diag(pmax(apply(pooled, 2, var), 1e-6)) * (2.38^2 / d)
-})
+prod_proposal <- tryCatch(
+    {
+        cov_mat <- cov(pooled) * (2.38^2 / d)
+        eig <- eigen(cov_mat, symmetric = TRUE)
+        if (any(eig$values < 1e-12) || any(!is.finite(eig$values))) stop("Degenerate covariance")
+        eig$values <- pmax(eig$values, 1e-12)
+        eig$vectors %*% diag(eig$values) %*% t(eig$vectors)
+    },
+    error = function(e) {
+        cat("Using diagonal proposal (covariance learning failed).\n")
+        diag(pmax(apply(pooled, 2, var), 1e-6)) * (2.38^2 / d)
+    }
+)
 
 # Expand proposal if freeze -> full
 if (freeze_reporting_rate && ncol(prod_proposal) == 3) {
@@ -485,24 +535,81 @@ ggsave(file.path(fig_dir, "goma_production_trace.png"), p_trace, width = 12, hei
 p_lltrace <- chlaa_plot_likelihood_trace(fit, burnin = 0.25, thin = 2)
 ggsave(file.path(fig_dir, "goma_production_likelihood_trace.png"), p_lltrace, width = 12, height = 8, dpi = 300)
 
-p_pairs <- chlaa_plot_parameter_pairs(fit, parameters = natural_fit_names,
-    burnin = 0.25, scale = "natural", max_points = 3000)
+p_pairs <- chlaa_plot_parameter_pairs(fit,
+    parameters = natural_fit_names,
+    burnin = 0.25, scale = "natural", max_points = 3000
+)
 ggsave(file.path(fig_dir, "goma_production_pairs.png"), p_pairs, width = 10, height = 10, dpi = 300)
 
-p_dist <- chlaa_plot_parameter_distributions(fit, parameters = natural_fit_names,
-    burnin = 0.25, scale = "natural")
+p_dist <- chlaa_plot_parameter_distributions(fit,
+    parameters = natural_fit_names,
+    burnin = 0.25, scale = "natural"
+)
 ggsave(file.path(fig_dir, "goma_production_distributions.png"), p_dist, width = 12, height = 8, dpi = 300)
 
 p_fit <- plot_case_fit(fit, hz_data_weekly,
-    sprintf("%s weekly reported cases", tools::toTitleCase(hz_name)), seed = 123)
+    sprintf("%s weekly reported cases", tools::toTitleCase(hz_name)),
+    seed = 123
+)
 ggsave(file.path(fig_dir, "goma_production_fit.png"), p_fit, width = 10, height = 6, dpi = 300)
 
 # ---- 13. Save ----
 
 saveRDS(
-    list(fit = fit, observed = hz_data_weekly, report = report_prod,
-         parameter_summary = chlaa_posterior_summary(fit, burnin = 0.25)),
+    list(
+        fit = fit, observed = hz_data_weekly, report = report_prod,
+        parameter_summary = chlaa_posterior_summary(fit, burnin = 0.25)
+    ),
     file.path(fig_dir, "goma_fit.rds")
 )
 
 cat("\nDone. Figures saved to:", fig_dir, "\n")
+
+
+###just debugging below, delete these three tests later on 
+#test number 1 
+library(chlaa); library(dplyr); library(ggplot2)
+
+med <- chlaa_fit_trace(fit, burnin = 0.25, scale = "natural") |>
+  group_by(parameter) |> summarise(value = median(value), .groups = "drop")
+g <- function(nm) med$value[med$parameter == nm]
+
+goma_pars <- make_goma_pars(               # your Goma factory, analogous to make_kirotshe_pars
+  trans_prob     = g("trans_prob"),
+  reporting_rate = g("reporting_rate"),
+  obs_size       = g("obs_size"),
+  E0             = g("E0")
+)
+
+sim <- chlaa_simulate(pars = goma_pars, time = goma$time,
+                      n_particles = 1, dt = 1, deterministic = TRUE)
+
+det <- tibble(
+  time        = goma$time,
+  inc_true    = sim$inc_symptoms_weekly,                 # modelled true symptomatic incidence
+  mu_reported = g("reporting_rate") * sim$inc_symptoms_weekly
+) |> left_join(goma |> select(time, date, cases), by = "time")
+
+ggplot(det, aes(date)) +
+  geom_col(aes(y = cases), fill = "grey70") +
+  geom_line(aes(y = mu_reported), colour = "#08519c", linewidth = 0.9) +
+  geom_line(aes(y = inc_true), colour = "#cb181d", linetype = 2, linewidth = 0.7) +
+  labs(x = NULL, y = "Weekly cases",
+       subtitle = "grey = data, blue = reporting*inc (observed mean), red dashed = true incidence")
+
+#test number 2 
+
+peak_wk <- det$time[which.max(det$cases)]
+max(det$cases) / det$inc_true[det$time == peak_wk]   # reporting needed at the peak
+sum(det$cases, na.rm = TRUE) / sum(det$inc_true, na.rm = TRUE)  # cumulative implied reporting
+
+#test number 3
+total_reported <- sum(goma$cases, na.rm = TRUE)
+N <- goma$population[1]
+for (rr in c(0.09, 0.16, 0.30)) {
+  symp  <- total_reported / rr
+  infec <- symp / 0.25                       # prop_asym = 0.75
+  cat(sprintf("reporting=%.2f  symptomatic=%.0f  total infections=%.0f  attack rate=%.1f%%\n",
+              rr, symp, infec, 100 * infec / N))
+}
+

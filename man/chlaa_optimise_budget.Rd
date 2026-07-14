@@ -70,6 +70,6 @@ The objective is to minimise expected deaths (mean across particles) over the ho
 - cost_cati_per_person_day
 
 Budget is spent on:
-- vaccination doses (vax1_total_doses, vax1_doses_per_day within the campaign window)
+- vaccination doses (vax1_total_doses within the campaign window)
 - WASH (implemented by setting intervention effects; this is a placeholder mapping)
 }

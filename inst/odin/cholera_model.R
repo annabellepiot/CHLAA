@@ -37,7 +37,7 @@ immunity_asym <- parameter(180.0)
 immunity_sym <- parameter(1095.0)
 
 # Transmission + environment
-beta_p2p <- parameter(0.05)
+contact_rate <- parameter(0.05)
 trans_prob <- parameter(0.055)
 
 time_to_contaminate <- parameter(19.075)
@@ -186,7 +186,7 @@ env_force <- trans_prob * (C / (C + contam_half_sat))
 
 # Effective infectious pool for person-to-person (simple)
 I_eff <- A + M + Sev + Mu + Mt + Sevu + Sevt
-p2p_force <- beta_p2p * (I_eff / N)
+p2p_force <- contact_rate * (I_eff / N)
 
 lambda <- trans_mult * (p2p_force + env_force)
 p_inf <- 1.0 - exp(-lambda * dt)
@@ -329,8 +329,11 @@ obs_size_deaths <- parameter(5.0)
 
 cases <- data()
 deaths <- data()
+has_deaths <- data()
 obs_interval <- data()
 obs_inc_symptoms <- if (obs_interval <= 1.5) inc_symptoms else inc_symptoms_weekly
 obs_inc_deaths <- if (obs_interval <= 1.5) inc_deaths else inc_deaths_weekly
 cases ~ NegativeBinomial(mu = reporting_rate * obs_inc_symptoms, size = obs_size)
-deaths ~ NegativeBinomial(mu = death_reporting_rate * obs_inc_deaths, size = obs_size_deaths)
+# When has_deaths = 0, mu = 0 and deaths = 0 in data, so
+# NegBin(0 | mu=0, size) = 1 → log-likelihood contribution = 0 (non-informative).
+deaths ~ NegativeBinomial(mu = has_deaths * death_reporting_rate * obs_inc_deaths, size = obs_size_deaths)

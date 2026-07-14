@@ -75,7 +75,10 @@ kirotshe <- read_csv(file.path(data_dir, "IDSR_dataset.csv"), show_col_types = F
   mutate(date = as.Date(date)) |>
   filter(date >= outbreak_start_date, date <= outbreak_end_date) |>
   mutate(time = seq_len(n()) * 7L) |>
-  select(date, time, cases, population, cases_pop)
+  select(date, time, cases, deaths, population, cases_pop)
+# NOTE: deaths column retains NAs; chlaa_prepare_data() converts them to
+# deaths=0 + has_deaths=0 (non-informative), while actual death counts get
+# has_deaths=1 (informative).
 
 outbreak_start <- outbreak_start_date
 outbreak_end <- outbreak_end_date
@@ -144,6 +147,16 @@ tibble(
   value = unlist(intervention_days)
 )
 
+# Burn-in: model starts this many days before first observation (day 7)
+# to let environmental contamination build up before the particle filter
+time_start <- -21L
+
+# Reference population for scaling contam_half_sat (Kirotshe ~516k)
+# This makes the environmental FOI depend on per-capita prevalence rather
+# than absolute case counts, so trans_prob stays comparable across zones.
+pop_ref <- 516000
+contam_half_sat_scaled <- 0.01 * (kirotshe$population[1] / pop_ref)
+
 # -----------------------------------------------------------------------------
 # 5. Parameter factory function
 # -----------------------------------------------------------------------------
@@ -154,12 +167,13 @@ make_kirotshe_pars <- function(trans_prob,
                                reporting_rate,
                                obs_size,
                                E0) {
-  do.call(
+  out <- do.call(
     chlaa_parameters,
     c(
       list(
         N = kirotshe$population[1],
         contact_rate = 0,
+        contam_half_sat = contam_half_sat_scaled,
         trans_prob = trans_prob,
         E0 = E0,
         Sev0 = 0,
@@ -167,13 +181,24 @@ make_kirotshe_pars <- function(trans_prob,
         C0 = 0,
         reporting_rate = reporting_rate,
         obs_size = obs_size,
-        seek_severe = 0.4,
-        fatality_treated = 0.001,
-        fatality_untreated = 0.0043
+        seek_severe = 0.85,
+        fatality_treated = 0.0021,
+        fatality_untreated = 0.5,
+        death_reporting_rate = 0.5,
+        obs_size_deaths = 1.0
       ),
       intervention_days
     )
   )
+  # Empty vaccination schedule arrays required by the odin model;
+  # must cover time_start for dust2 interpolation
+  out$vax1_schedule_time <- c(time_start, time_start + 1L)
+  out$vax1_schedule_doses <- c(0, 0)
+  out$n_vax1_schedule <- 2L
+  out$vax2_schedule_time <- c(time_start, time_start + 1L)
+  out$vax2_schedule_doses <- c(0, 0)
+  out$n_vax2_schedule <- 2L
+  out
 }
 
 # -----------------------------------------------------------------------------
@@ -184,7 +209,7 @@ make_kirotshe_pars <- function(trans_prob,
 
 truth_pars <- make_kirotshe_pars(
   trans_prob = 8.5e-4,
-  reporting_rate = 0.35,
+  reporting_rate = 0.15,
   obs_size = 120,
   E0 = 80
 )
@@ -249,8 +274,10 @@ pilot_steps <- 5000L
 deterministic_steps <- 20000L
 particle_steps <- 5000L
 particle_count <- 50L
+# Synthetic data has no deaths observations; set deaths = 0 with has_deaths
+# handled by chlaa_prepare_data (deaths = 0 + has_deaths = 0 → non-informative).
 fit_data_synthetic <- synthetic_weekly |> select(time, cases)
-fit_data_real <- kirotshe |> select(time, cases)
+fit_data_real <- kirotshe |> select(time, cases, deaths)
 
 # -----------------------------------------------------------------------------
 # 9. Trace extraction function
@@ -479,8 +506,8 @@ make_raw_start <- function(trans_prob, reporting_rate, obs_size, E0) {
 
 raw_starts <- list(
   make_raw_start(trans_prob = 1.6e-3, reporting_rate = 0.12, obs_size = 20, E0 = 35),
-  make_raw_start(trans_prob = 4.0e-4, reporting_rate = 0.70, obs_size = 200, E0 = 200),
-  make_raw_start(trans_prob = 1.2e-3, reporting_rate = 0.25, obs_size = 45, E0 = 120)
+  make_raw_start(trans_prob = 4.0e-4, reporting_rate = 0.25, obs_size = 200, E0 = 200),
+  make_raw_start(trans_prob = 1.2e-3, reporting_rate = 0.15, obs_size = 45, E0 = 120)
 )
 
 bind_rows(
@@ -501,9 +528,9 @@ bind_rows(
 raw_prior <- monty::monty_dsl(
   {
     trans_prob ~ Uniform(1e-4, 1e-2)
-    reporting_rate ~ Uniform(0.05, 0.8)
+    reporting_rate ~ Uniform(0.06, 0.30)
     obs_size ~ Uniform(1, 300)
-    E0 ~ Uniform(5, 2000)
+    E0 ~ Uniform(10, 800)
   },
   gradient = FALSE
 )
@@ -538,7 +565,7 @@ raw_fit <- chlaa_fit_pmcmc(
   packer = raw_packer(raw_starts[[1]]),
   proposal_var = raw_proposal,
   obs_interval = 7,
-  time_start = 0,
+  time_start = time_start,
   deterministic = TRUE
 )
 
@@ -604,53 +631,70 @@ fit_names <- c(
 
 fit_prior <- monty::monty_dsl(
   {
-    log_trans_prob ~ Uniform(-9.210340, -4.605170)
-    logit_reporting_rate ~ Uniform(-2.944439, 1.386294)
+    log_trans_prob ~ Uniform(-9.21034, -4.60517) # log(1e-4) to log(1e-2)
+    logit_reporting_rate ~ Uniform(-2.751535, -0.847298) # qlogis(c(0.06, 0.30))
     log_obs_size ~ Uniform(0, 5.703782)
-    log_E0 ~ Uniform(1.609438, 7.600902)
+    log_E0 ~ Uniform(2.302585, 6.684612)
   },
   gradient = FALSE
 )
 
-add_transformed_values <- function(pars) {
+# Freeze-reporting_rate prior (3 params, for pilot/exploratory stage)
+fit_prior_freeze <- monty::monty_dsl(
+  {
+    log_trans_prob ~ Uniform(-9.21034, -4.60517)
+    log_obs_size ~ Uniform(0, 5.703782)
+    log_E0 ~ Uniform(2.302585, 6.684612)
+  },
+  gradient = FALSE
+)
+
+add_transformed_values <- function(pars, freeze_reporting_rate = FALSE) {
   pars$log_trans_prob <- log(pars$trans_prob)
-  pars$logit_reporting_rate <- qlogis(pars$reporting_rate)
+  if (!freeze_reporting_rate) pars$logit_reporting_rate <- qlogis(pars$reporting_rate)
   pars$log_obs_size <- log(pars$obs_size)
   pars$log_E0 <- log(pars$E0)
   pars
 }
 
-make_packer <- function(pars) {
-  fixed <- pars[setdiff(names(pars), c(fit_names, natural_fit_names))]
+make_packer <- function(pars, freeze_reporting_rate = FALSE) {
+  fit_names_use <- if (freeze_reporting_rate) {
+    c("log_trans_prob", "log_obs_size", "log_E0")
+  } else {
+    fit_names
+  }
+  fixed <- pars[setdiff(names(pars), c(fit_names_use, natural_fit_names))]
 
   monty::monty_packer(
-    scalar = fit_names,
+    scalar = fit_names_use,
     fixed = fixed,
     process = function(p) {
-      list(
+      out <- list(
         trans_prob = exp(p$log_trans_prob),
-        reporting_rate = plogis(p$logit_reporting_rate),
         obs_size = exp(p$log_obs_size),
         E0 = exp(p$log_E0)
       )
+      if (!freeze_reporting_rate) out$reporting_rate <- plogis(p$logit_reporting_rate)
+      out
     }
   )
 }
 
-make_start <- function(trans_prob, reporting_rate, obs_size, E0) {
+make_start <- function(trans_prob, reporting_rate, obs_size, E0,
+                       freeze_reporting_rate = FALSE) {
   make_kirotshe_pars(
     trans_prob = trans_prob,
     reporting_rate = reporting_rate,
     obs_size = obs_size,
     E0 = E0
   ) |>
-    add_transformed_values()
+    add_transformed_values(freeze_reporting_rate = freeze_reporting_rate)
 }
 
 synthetic_starts <- list(
   make_start(trans_prob = 1.6e-3, reporting_rate = 0.12, obs_size = 20, E0 = 35),
-  make_start(trans_prob = 4.0e-4, reporting_rate = 0.70, obs_size = 200, E0 = 200),
-  make_start(trans_prob = 1.2e-3, reporting_rate = 0.25, obs_size = 45, E0 = 120)
+  make_start(trans_prob = 4.0e-4, reporting_rate = 0.25, obs_size = 200, E0 = 200),
+  make_start(trans_prob = 1.2e-3, reporting_rate = 0.15, obs_size = 45, E0 = 120)
 )
 
 # -----------------------------------------------------------------------------
@@ -681,7 +725,7 @@ synthetic_pilot <- chlaa_fit_pmcmc(
   packer = make_packer(synthetic_starts[[1]]),
   proposal_var = pilot_proposal,
   obs_interval = 7,
-  time_start = 0,
+  time_start = time_start,
   deterministic = TRUE
 )
 
@@ -723,7 +767,7 @@ synthetic_det <- chlaa_fit_pmcmc(
   packer = make_packer(synthetic_starts[[1]]),
   proposal_var = synthetic_det_proposal,
   obs_interval = 7,
-  time_start = 0,
+  time_start = time_start,
   deterministic = TRUE
 )
 
@@ -795,11 +839,7 @@ ggsave(
 # We keep the covariance direction learned by the deterministic fit and shrink the scale
 # because the particle likelihood is noisy.
 
-synthetic_particle_starts <- chain_median_starts(
-  synthetic_det,
-  template_pars = synthetic_starts[[1]],
-  burnin = 0.25
-)
+synthetic_particle_starts <- synthetic_starts
 
 synthetic_particle_proposal <- proposal_from_fit(
   synthetic_det,
@@ -830,7 +870,7 @@ synthetic_particle <- chlaa_fit_pmcmc(
   packer = make_packer(synthetic_particle_starts[[1]]),
   proposal_var = synthetic_particle_proposal,
   obs_interval = 7,
-  time_start = 0,
+  time_start = time_start,
   deterministic = FALSE
 )
 
@@ -909,70 +949,87 @@ ggsave(
 # 32. Real data starting points
 # -----------------------------------------------------------------------------
 # Defines three dispersed starting points for real Kirotshe data fitting.
+# The pilot stage freezes reporting_rate to let other parameters settle first.
 
-real_starts <- list(
-  make_start(trans_prob = 2.0e-3, reporting_rate = 0.12, obs_size = 5, E0 = 600),
-  make_start(trans_prob = 6.0e-4, reporting_rate = 0.60, obs_size = 50, E0 = 1000),
-  make_start(trans_prob = 3.0e-3, reporting_rate = 0.20, obs_size = 10, E0 = 300)
+real_starts_freeze <- list(
+  make_start(trans_prob = 1e-3, reporting_rate = 0.15, obs_size = 30, E0 = 80,
+             freeze_reporting_rate = TRUE),
+  make_start(trans_prob = 5e-4, reporting_rate = 0.15, obs_size = 20, E0 = 40,
+             freeze_reporting_rate = TRUE),
+  make_start(trans_prob = 5e-3, reporting_rate = 0.15, obs_size = 100, E0 = 200,
+             freeze_reporting_rate = TRUE)
 )
 
-imap_dfr(real_starts, \(pars, chain) tibble(
-  chain = paste0("chain_", chain),
-  parameter = natural_fit_names,
-  value = unlist(pars[natural_fit_names])
-)) |>
-  pivot_wider(names_from = parameter, values_from = value)
+real_starts_full <- list(
+  make_start(trans_prob = 1e-3, reporting_rate = 0.15, obs_size = 30, E0 = 80),
+  make_start(trans_prob = 5e-4, reporting_rate = 0.08, obs_size = 20, E0 = 40),
+  make_start(trans_prob = 5e-3, reporting_rate = 0.20, obs_size = 100, E0 = 200)
+)
 
 # -----------------------------------------------------------------------------
-# 33. Real data pilot
+# 33. Real data pilot (freeze reporting_rate)
 # -----------------------------------------------------------------------------
-# Pilot run on real data to estimate proposal covariance before main
-# deterministic fit.
+# Pilot run with reporting_rate frozen to let trans_prob, obs_size, and E0
+# settle before unfreezing all four parameters.
+
+freeze_pilot_proposal <- c(
+  log_trans_prob = 0.02,
+  log_obs_size = 0.08,
+  log_E0 = 0.08
+)
 
 real_pilot <- chlaa_fit_pmcmc(
   data = fit_data_real,
-  pars = real_starts[[1]],
-  chain_pars = real_starts,
+  pars = real_starts_freeze[[1]],
+  chain_pars = real_starts_freeze,
   n_chains = n_chains,
   n_particles = 1,
   n_steps = pilot_steps,
   seed = 501,
-  prior = fit_prior,
-  packer = make_packer(real_starts[[1]]),
-  proposal_var = pilot_proposal,
+  prior = fit_prior_freeze,
+  packer = make_packer(real_starts_freeze[[1]], freeze_reporting_rate = TRUE),
+  proposal_var = freeze_pilot_proposal,
   obs_interval = 7,
-  time_start = 0,
+  time_start = time_start,
   deterministic = TRUE
 )
 
-acceptance_summary(real_pilot, "real pilot")
+acceptance_summary(real_pilot, "real pilot (freeze)")
 
-real_det_proposal <- proposal_from_fit(
+# Learn covariance from frozen pilot and expand 3x3 → 4x4
+pilot_cov3 <- proposal_from_fit(real_pilot, burnin = 0.25, scale = 1)
+real_det_proposal <- matrix(0, 4, 4)
+idx_map <- c(1L, 3L, 4L) # log_trans_prob, log_obs_size, log_E0 → positions in full
+real_det_proposal[idx_map, idx_map] <- pilot_cov3
+real_det_proposal[2, 2] <- 0.05 * (2.38^2 / 4) # logit_reporting_rate default
+diag(real_det_proposal) <- pmax(diag(real_det_proposal), 1e-6)
+
+# Warm-start full starts from pilot medians
+real_starts_full <- chain_median_starts(
   real_pilot,
-  burnin = 0.25,
-  scale = 1
+  template_pars = real_starts_full[[1]],
+  burnin = 0.25
 )
 
-round(cov2cor(real_det_proposal), 2)
-
 # -----------------------------------------------------------------------------
-# 34. Real data deterministic run
+# 34. Real data deterministic run (full 4-param)
 # -----------------------------------------------------------------------------
-# Extended deterministic run on real data with learned proposal covariance.
+# Extended deterministic run on real data with all four parameters unfrozen
+# and learned proposal covariance expanded from the frozen pilot.
 
 real_det <- chlaa_fit_pmcmc(
   data = fit_data_real,
-  pars = real_starts[[1]],
-  chain_pars = real_starts,
+  pars = real_starts_full[[1]],
+  chain_pars = real_starts_full,
   n_chains = n_chains,
   n_particles = 1,
   n_steps = deterministic_steps,
   seed = 601,
   prior = fit_prior,
-  packer = make_packer(real_starts[[1]]),
+  packer = make_packer(real_starts_full[[1]]),
   proposal_var = real_det_proposal,
   obs_interval = 7,
-  time_start = 0,
+  time_start = time_start,
   deterministic = TRUE
 )
 
@@ -1021,7 +1078,7 @@ ggsave(
 
 real_particle_starts <- chain_median_starts(
   real_det,
-  template_pars = real_starts[[1]],
+  template_pars = real_starts_full[[1]],
   burnin = 0.25
 )
 
@@ -1048,7 +1105,7 @@ real_particle <- chlaa_fit_pmcmc(
   packer = make_packer(real_particle_starts[[1]]),
   proposal_var = real_particle_proposal,
   obs_interval = 7,
-  time_start = 0,
+  time_start = time_start,
   deterministic = FALSE
 )
 

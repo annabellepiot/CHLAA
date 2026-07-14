@@ -8,7 +8,7 @@ test_that("chlaa_update_from_fit updates known parameters", {
     ),
     nrow = 2, byrow = TRUE
   )
-  colnames(fake_draws) <- c("trans_prob", "beta_p2p", "incubation_time")
+  colnames(fake_draws) <- c("trans_prob", "contact_rate", "incubation_time")
 
   fit <- list(pars = fake_draws)
   class(fit) <- "chlaa_fit"
@@ -17,7 +17,7 @@ test_that("chlaa_update_from_fit updates known parameters", {
 
   expect_true(is.list(upd))
   expect_equal(upd$trans_prob, mean(c(0.06, 0.05)))
-  expect_equal(upd$beta_p2p, mean(c(0.04, 0.06)))
+  expect_equal(upd$contact_rate, mean(c(0.04, 0.06)))
   expect_equal(upd$incubation_time, mean(c(4.0, 5.0)))
 })
 

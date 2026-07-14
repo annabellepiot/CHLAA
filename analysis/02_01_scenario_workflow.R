@@ -13,7 +13,8 @@ library(ggplot2)
 library(dplyr)
 
 # Directory for saving figures
-fig_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/CHLAA/figures"
+fig_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures"
+dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
 
 # -----------------------------------------------------------------------------
 # 1. Load the fitted model
@@ -85,37 +86,69 @@ response_end <- horizon + 1
 campaign_days <- 28
 vaccine_doses <- floor(0.20 * pars_fit$N)
 
+# Helper to generate a uniform vaccination schedule for scenario use.
+# The odin model requires interpolated schedule arrays, not just
+# vax1_start/end/total_doses.
+make_scenario_vax_schedule <- function(total_doses, start_day, end_day) {
+  n_days <- max(end_day - start_day, 1L)
+  daily_doses <- total_doses / n_days
+  sched_time <- as.integer(c(start_day, end_day))
+  sched_doses <- c(daily_doses, 0)
+  # Ensure schedule covers early times for interpolation
+  if (min(sched_time) > 0) {
+    sched_time <- c(0L, sched_time)
+    sched_doses <- c(0, sched_doses)
+  }
+  list(
+    vax1_schedule_time = sched_time,
+    vax1_schedule_doses = sched_doses,
+    n_vax1_schedule = length(sched_time)
+  )
+}
+
+# Empty vaccination schedule arrays (for scenarios with no vaccination)
+empty_vax <- list(
+  vax1_schedule_time = c(0L, 1L),
+  vax1_schedule_doses = c(0, 0),
+  n_vax1_schedule = 2L,
+  vax2_schedule_time = c(0L, 1L),
+  vax2_schedule_doses = c(0, 0),
+  n_vax2_schedule = 2L
+)
+
 # No intervention counterfactual: all interventions turned off
-no_intervention <- list(
+no_intervention <- c(list(
   chlor_start = 0, chlor_end = 0, chlor_effect = 0,
   hyg_start = 0, hyg_end = 0, hyg_effect = 0,
   lat_start = 0, lat_end = 0, lat_effect = 0,
   cati_start = 0, cati_end = 0, cati_effect = 0,
   orc_start = 0, orc_end = 0, orc_capacity = 0,
   ctc_start = 0, ctc_end = 0, ctc_capacity = 0,
-  vax1_start = 0, vax1_end = 0, vax1_doses_per_day = 0, vax1_total_doses = 0,
-  vax2_start = 0, vax2_end = 0, vax2_doses_per_day = 0, vax2_total_doses = 0
-)
+  vax1_start = 0, vax1_end = 0, vax1_total_doses = 0,
+  vax2_start = 0, vax2_end = 0, vax2_total_doses = 0
+), empty_vax)
 
 # Anticipatory-action response: WASH + treatment triggered at 50-case threshold
-aa_response <- list(
+aa_response <- c(list(
   chlor_start = trigger_time, chlor_end = response_end, chlor_effect = pars_fit$chlor_effect,
   hyg_start = trigger_time, hyg_end = response_end, hyg_effect = pars_fit$hyg_effect,
   lat_start = trigger_time, lat_end = response_end, lat_effect = max(pars_fit$lat_effect, 0.10),
   cati_start = trigger_time, cati_end = response_end, cati_effect = pars_fit$cati_effect,
   orc_start = trigger_time, orc_end = response_end, orc_capacity = pars_fit$orc_capacity,
   ctc_start = trigger_time, ctc_end = response_end, ctc_capacity = pars_fit$ctc_capacity,
-  vax1_start = 0, vax1_end = 0, vax1_doses_per_day = 0, vax1_total_doses = 0,
-  vax2_start = 0, vax2_end = 0, vax2_doses_per_day = 0, vax2_total_doses = 0
-)
+  vax1_start = 0, vax1_end = 0, vax1_total_doses = 0,
+  vax2_start = 0, vax2_end = 0, vax2_total_doses = 0
+), empty_vax)
 
 # Anticipatory-action response + vaccination campaign
-aa_vaccination <- modifyList(aa_response, list(
-  vax1_start = trigger_time + 14,
-  vax1_end = trigger_time + 14 + campaign_days,
-  vax1_total_doses = vaccine_doses,
-  vax1_doses_per_day = vaccine_doses / campaign_days
-))
+vax1_start_day <- trigger_time + 14
+vax1_end_day <- vax1_start_day + campaign_days
+vax_sched <- make_scenario_vax_schedule(vaccine_doses, vax1_start_day, vax1_end_day)
+aa_vaccination <- modifyList(aa_response, c(list(
+  vax1_start = vax1_start_day,
+  vax1_end = vax1_end_day,
+  vax1_total_doses = vaccine_doses
+), vax_sched))
 
 scenarios <- list(
   chlaa_scenario("no_interventions", no_intervention),

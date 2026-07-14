@@ -27,7 +27,7 @@
 // [[dust2::parameter(p_progress_severe, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(immunity_asym, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(immunity_sym, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
-// [[dust2::parameter(beta_p2p, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
+// [[dust2::parameter(contact_rate, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(trans_prob, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(time_to_contaminate, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
 // [[dust2::parameter(water_clearance_time, type = "real_type", rank = 0, required = FALSE, constant = FALSE)]]
@@ -124,7 +124,7 @@ public:
     real_type p_progress_severe;
     real_type immunity_asym;
     real_type immunity_sym;
-    real_type beta_p2p;
+    real_type contact_rate;
     real_type trans_prob;
     real_type time_to_contaminate;
     real_type water_clearance_time;
@@ -184,6 +184,7 @@ public:
   struct data_type {
     real_type cases;
     real_type deaths;
+    real_type has_deaths;
     real_type obs_interval;
   };
   static dust2::packing packing_state(const shared_state& shared) {
@@ -215,7 +216,7 @@ public:
     const real_type p_progress_severe = dust2::r::read_real(parameters, "p_progress_severe", static_cast<real_type>(0.29999999999999999));
     const real_type immunity_asym = dust2::r::read_real(parameters, "immunity_asym", 180);
     const real_type immunity_sym = dust2::r::read_real(parameters, "immunity_sym", 1095);
-    const real_type beta_p2p = dust2::r::read_real(parameters, "beta_p2p", static_cast<real_type>(0.050000000000000003));
+    const real_type contact_rate = dust2::r::read_real(parameters, "contact_rate", static_cast<real_type>(0.050000000000000003));
     const real_type trans_prob = dust2::r::read_real(parameters, "trans_prob", static_cast<real_type>(0.055));
     const real_type time_to_contaminate = dust2::r::read_real(parameters, "time_to_contaminate", static_cast<real_type>(19.074999999999999));
     const real_type water_clearance_time = dust2::r::read_real(parameters, "water_clearance_time", 30);
@@ -315,7 +316,7 @@ public:
       {"cum_ctc_treated", {}}
     };
     odin.packing.state.copy_offset(odin.offset.state.begin());
-    return shared_state{odin, dim, N, E0, A0, M0, Sev0, Mu0, Mt0, Sevu0, Sevt0, Ra0, Rs0, V10, V20, Du0, Dt0, C0, prop_asym, incubation_time, duration_asym, duration_sym, time_to_next_stage, p_progress_severe, immunity_asym, immunity_sym, beta_p2p, trans_prob, time_to_contaminate, water_clearance_time, contam_half_sat, shed_asym, shed_mild, shed_severe, contam_scale, seek_mild, seek_severe, orc_capacity, ctc_capacity, treated_shed_mult_orc, treated_shed_mult_ctc, fatality_treated, fatality_untreated, chlor_start, chlor_end, chlor_effect, hyg_start, hyg_end, hyg_effect, lat_start, lat_end, lat_effect, cati_start, cati_end, cati_effect, orc_start, orc_end, ctc_start, ctc_end, vax1_start, vax1_end, vax1_total_doses, vax2_start, vax2_end, vax2_total_doses, n_vax1_schedule, n_vax2_schedule, ve_1, ve_2, vax_immunity_1, vax_immunity_2, reporting_rate, obs_size, death_reporting_rate, obs_size_deaths, vax1_schedule_time, vax1_schedule_doses, vax2_schedule_time, vax2_schedule_doses, interpolate_vax1_doses_daily, interpolate_vax2_doses_daily};
+    return shared_state{odin, dim, N, E0, A0, M0, Sev0, Mu0, Mt0, Sevu0, Sevt0, Ra0, Rs0, V10, V20, Du0, Dt0, C0, prop_asym, incubation_time, duration_asym, duration_sym, time_to_next_stage, p_progress_severe, immunity_asym, immunity_sym, contact_rate, trans_prob, time_to_contaminate, water_clearance_time, contam_half_sat, shed_asym, shed_mild, shed_severe, contam_scale, seek_mild, seek_severe, orc_capacity, ctc_capacity, treated_shed_mult_orc, treated_shed_mult_ctc, fatality_treated, fatality_untreated, chlor_start, chlor_end, chlor_effect, hyg_start, hyg_end, hyg_effect, lat_start, lat_end, lat_effect, cati_start, cati_end, cati_effect, orc_start, orc_end, ctc_start, ctc_end, vax1_start, vax1_end, vax1_total_doses, vax2_start, vax2_end, vax2_total_doses, n_vax1_schedule, n_vax2_schedule, ve_1, ve_2, vax_immunity_1, vax_immunity_2, reporting_rate, obs_size, death_reporting_rate, obs_size_deaths, vax1_schedule_time, vax1_schedule_doses, vax2_schedule_time, vax2_schedule_doses, interpolate_vax1_doses_daily, interpolate_vax2_doses_daily};
   }
   static internal_state build_internal(const shared_state& shared) {
     return internal_state{};
@@ -323,8 +324,9 @@ public:
   static data_type build_data(cpp11::list data, const shared_state& shared) {
     auto cases = dust2::r::read_real(data, "cases", NA_REAL);
     auto deaths = dust2::r::read_real(data, "deaths", NA_REAL);
+    auto has_deaths = dust2::r::read_real(data, "has_deaths", NA_REAL);
     auto obs_interval = dust2::r::read_real(data, "obs_interval", NA_REAL);
-    return data_type{cases, deaths, obs_interval};
+    return data_type{cases, deaths, has_deaths, obs_interval};
   }
   static void update_shared(cpp11::list parameters, shared_state& shared) {
     shared.N = dust2::r::read_real(parameters, "N", shared.N);
@@ -351,7 +353,7 @@ public:
     shared.p_progress_severe = dust2::r::read_real(parameters, "p_progress_severe", shared.p_progress_severe);
     shared.immunity_asym = dust2::r::read_real(parameters, "immunity_asym", shared.immunity_asym);
     shared.immunity_sym = dust2::r::read_real(parameters, "immunity_sym", shared.immunity_sym);
-    shared.beta_p2p = dust2::r::read_real(parameters, "beta_p2p", shared.beta_p2p);
+    shared.contact_rate = dust2::r::read_real(parameters, "contact_rate", shared.contact_rate);
     shared.trans_prob = dust2::r::read_real(parameters, "trans_prob", shared.trans_prob);
     shared.time_to_contaminate = dust2::r::read_real(parameters, "time_to_contaminate", shared.time_to_contaminate);
     shared.water_clearance_time = dust2::r::read_real(parameters, "water_clearance_time", shared.water_clearance_time);
@@ -494,7 +496,7 @@ public:
     const real_type p_wane_V1 = 1 - monty::math::exp<real_type>(-dt / shared.vax_immunity_1);
     const real_type p_wane_V2 = 1 - monty::math::exp<real_type>(-dt / shared.vax_immunity_2);
     const real_type env_force = shared.trans_prob * (C / (C + shared.contam_half_sat));
-    const real_type p2p_force = shared.beta_p2p * (I_eff / shared.N);
+    const real_type p2p_force = shared.contact_rate * (I_eff / shared.N);
     const real_type vax1_remain = monty::math::max<real_type>(0, shared.vax1_total_doses - cum_vax1);
     const real_type vax2_remain = monty::math::max<real_type>(0, shared.vax2_total_doses - cum_vax2);
     const real_type trans_mult = monty::math::max<real_type>(0, 1 - (chlor_active * shared.chlor_effect + hyg_active * shared.hyg_effect + cati_active * shared.cati_effect));
@@ -591,7 +593,7 @@ public:
     const real_type obs_inc_symptoms = (data.obs_interval <= static_cast<real_type>(1.5) ? inc_symptoms : inc_symptoms_weekly);
     const real_type obs_inc_deaths = (data.obs_interval <= static_cast<real_type>(1.5) ? inc_deaths : inc_deaths_weekly);
     odin_ll += unless_nan(monty::density::negative_binomial_mu(data.cases, shared.obs_size, shared.reporting_rate * obs_inc_symptoms, true));
-    odin_ll += unless_nan(monty::density::negative_binomial_mu(data.deaths, shared.obs_size_deaths, shared.death_reporting_rate * obs_inc_deaths, true));
+    odin_ll += unless_nan(monty::density::negative_binomial_mu(data.deaths, shared.obs_size_deaths, data.has_deaths * shared.death_reporting_rate * obs_inc_deaths, true));
     return odin_ll;
   }
 };

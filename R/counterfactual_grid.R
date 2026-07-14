@@ -105,8 +105,8 @@ chlaa_counterfactual_grid <- function(trigger_time,
 
     if (reg == "none" || doses <= 0) {
       m <- c(m, list(
-        vax1_start = 0, vax1_end = 0, vax1_total_doses = 0, vax1_doses_per_day = 0,
-        vax2_start = 0, vax2_end = 0, vax2_total_doses = 0, vax2_doses_per_day = 0
+        vax1_start = 0, vax1_end = 0, vax1_total_doses = 0,
+        vax2_start = 0, vax2_end = 0, vax2_total_doses = 0
       ))
     } else if (reg == "1dose") {
       plan <- .chlaa_make_vax_plan(

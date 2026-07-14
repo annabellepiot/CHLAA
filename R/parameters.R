@@ -51,7 +51,7 @@ chlaa_parameter_info <- function() {
     .param("immunity_sym", 1095.0, "days", "Immunity duration after symptomatic infection.", src),
 
     # Transmission and environment
-    .param("beta_p2p", 0.05, "1/day", "Person-to-person transmission rate.", src),
+    .param("contact_rate", 0.05, "1/day", "Person-to-person transmission rate.", src),
     .param("trans_prob", 0.127, "probability/contact", "Per-contact transmission probability.", src),
     .param("time_to_contaminate", 19.075, "days", "Time-scale for contamination dynamics.", src),
     .param("water_clearance_time", 30.0, "days", "Environmental clearance time.", src),
@@ -96,12 +96,10 @@ chlaa_parameter_info <- function() {
     # Vaccination
     .param("vax1_start", 0.0, "day", "Start time dose 1 campaign.", src),
     .param("vax1_end", 0.0, "day", "End time dose 1 campaign.", src),
-    .param("vax1_doses_per_day", 0.0, "doses/day", "Dose 1 delivery rate.", src),
     .param("vax1_total_doses", 0.0, "doses", "Total dose 1 supply.", src),
 
     .param("vax2_start", 0.0, "day", "Start time dose 2 campaign.", src),
     .param("vax2_end", 0.0, "day", "End time dose 2 campaign.", src),
-    .param("vax2_doses_per_day", 0.0, "doses/day", "Dose 2 delivery rate.", src),
     .param("vax2_total_doses", 0.0, "doses", "Total dose 2 supply.", src),
 
     .param("ve_1", 0.4, "fraction", "Efficacy after dose 1 (susceptibility reduction).", src),
@@ -133,12 +131,30 @@ chlaa_parameters <- function(..., validate = TRUE) {
   out <- as.list(info$default)
   names(out) <- info$name
 
+  # Vaccination schedule arrays required by the odin model's interpolate().
+
+  # Default to a single-element dummy schedule with zero doses at time 0.
+  # These are overridden when a real vaccination schedule is provided.
+  if (is.null(out[["vax1_schedule_time"]])) {
+    out$n_vax1_schedule <- 1L
+    out$vax1_schedule_time <- 0
+    out$vax1_schedule_doses <- 0
+  }
+  if (is.null(out[["vax2_schedule_time"]])) {
+    out$n_vax2_schedule <- 1L
+    out$vax2_schedule_time <- 0
+    out$vax2_schedule_doses <- 0
+  }
+
   overrides <- list(...)
+  # Allow overriding both scalar params and schedule arrays
+  schedule_names <- c("n_vax1_schedule", "vax1_schedule_time", "vax1_schedule_doses",
+                      "n_vax2_schedule", "vax2_schedule_time", "vax2_schedule_doses")
   if (length(overrides) > 0) {
     if (is.null(names(overrides)) || any(names(overrides) == "")) {
       stop("All overrides must be named", call. = FALSE)
     }
-    unknown <- setdiff(names(overrides), names(out))
+    unknown <- setdiff(names(overrides), c(names(out), schedule_names))
     if (length(unknown) > 0) {
       stop("Unknown parameters in overrides: ", paste(unknown, collapse = ", "), call. = FALSE)
     }
@@ -180,10 +196,10 @@ chlaa_parameters_validate <- function(pars) {
   nonneg <- c(
     "N","E0","A0","M0","Sev0","Mu0","Mt0","Sevu0","Sevt0","Ra0","Rs0","V10","V20","Du0","Dt0",
     "C0","incubation_time","duration_asym","duration_sym","time_to_next_stage",
-    "immunity_asym","immunity_sym","beta_p2p","trans_prob","time_to_contaminate",
+    "immunity_asym","immunity_sym","contact_rate","trans_prob","time_to_contaminate",
     "water_clearance_time","contam_half_sat","shed_asym","shed_mild","shed_severe",
     "contam_scale","orc_capacity","ctc_capacity",
-    "vax1_doses_per_day","vax1_total_doses","vax2_doses_per_day","vax2_total_doses",
+    "vax1_total_doses","vax2_total_doses",
     "vax_immunity_1","vax_immunity_2","obs_size","obs_size_deaths"
   )
   for (nm in intersect(nonneg, names(pars))) {

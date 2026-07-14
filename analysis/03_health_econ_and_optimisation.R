@@ -99,8 +99,8 @@ no_intervention <- list(
   cati_start = 0, cati_end = 0, cati_effect = 0,
   orc_start = 0, orc_end = 0, orc_capacity = 0,
   ctc_start = 0, ctc_end = 0, ctc_capacity = 0,
-  vax1_start = 0, vax1_end = 0, vax1_doses_per_day = 0, vax1_total_doses = 0,
-  vax2_start = 0, vax2_end = 0, vax2_doses_per_day = 0, vax2_total_doses = 0
+  vax1_start = 0, vax1_end = 0, vax1_total_doses = 0,
+  vax2_start = 0, vax2_end = 0, vax2_total_doses = 0
 )
 
 # Anticipatory-action response
@@ -111,16 +111,15 @@ aa_response <- list(
   cati_start = trigger_time, cati_end = response_end, cati_effect = pars_fit$cati_effect,
   orc_start = trigger_time, orc_end = response_end, orc_capacity = pars_fit$orc_capacity,
   ctc_start = trigger_time, ctc_end = response_end, ctc_capacity = pars_fit$ctc_capacity,
-  vax1_start = 0, vax1_end = 0, vax1_doses_per_day = 0, vax1_total_doses = 0,
-  vax2_start = 0, vax2_end = 0, vax2_doses_per_day = 0, vax2_total_doses = 0
+  vax1_start = 0, vax1_end = 0, vax1_total_doses = 0,
+  vax2_start = 0, vax2_end = 0, vax2_total_doses = 0
 )
 
 # Anticipatory-action response + vaccination campaign
 aa_vaccination <- utils::modifyList(aa_response, list(
   vax1_start = trigger_time + 14,
   vax1_end = trigger_time + 14 + campaign_days,
-  vax1_total_doses = vaccine_doses,
-  vax1_doses_per_day = vaccine_doses / campaign_days
+  vax1_total_doses = vaccine_doses
 ))
 
 scenarios <- list(

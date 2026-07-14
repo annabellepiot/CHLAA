@@ -10,7 +10,7 @@
   chlaa_parameters(
     N = 540000,
     Sev0 = 2,
-    beta_p2p = 0.05,
+    contact_rate = 0.05,
     trans_prob = 0.055,
     reporting_rate = 0.12,
     obs_size = obs_size,
@@ -20,8 +20,8 @@
     cati_start = 0, cati_end = 0, cati_effect = 0,
     orc_start = 0, orc_end = 0,
     ctc_start = 0, ctc_end = 0,
-    vax1_start = 0, vax1_end = 0, vax1_doses_per_day = 0, vax1_total_doses = 0,
-    vax2_start = 0, vax2_end = 0, vax2_doses_per_day = 0, vax2_total_doses = 0
+    vax1_start = 0, vax1_end = 0, vax1_total_doses = 0,
+    vax2_start = 0, vax2_end = 0, vax2_total_doses = 0
   )
 }
 
@@ -66,18 +66,16 @@
     vax1_start = late_vax_start_day,
     vax1_end = late_vax_start_day + campaign_days,
     vax1_total_doses = vax_total_doses,
-    vax1_doses_per_day = vax_total_doses / campaign_days,
     vax2_start = 0, vax2_end = 0,
-    vax2_total_doses = 0, vax2_doses_per_day = 0
+    vax2_total_doses = 0
   )
 
   early_one_dose <- list(
     vax1_start = trigger_day + 30,
     vax1_end = trigger_day + 30 + campaign_days,
     vax1_total_doses = vax_total_doses,
-    vax1_doses_per_day = vax_total_doses / campaign_days,
     vax2_start = 0, vax2_end = 0,
-    vax2_total_doses = 0, vax2_doses_per_day = 0
+    vax2_total_doses = 0
   )
 
   # Keep the second-dose campaign conservative to avoid infeasible
@@ -89,11 +87,9 @@
     vax1_start = trigger_day + 30,
     vax1_end = trigger_day + 30 + campaign_days,
     vax1_total_doses = vax_total_doses / 2,
-    vax1_doses_per_day = (vax_total_doses / 2) / campaign_days,
     vax2_start = trigger_day + 30 + campaign_days + 14,
     vax2_end = trigger_day + 30 + campaign_days + 14 + campaign_days,
-    vax2_total_doses = vax2_total_stable,
-    vax2_doses_per_day = vax2_total_stable / campaign_days
+    vax2_total_doses = vax2_total_stable
   )
 
   list(

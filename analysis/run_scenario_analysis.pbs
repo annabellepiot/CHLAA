@@ -1,23 +1,31 @@
 #!/bin/bash
-#PBS -l walltime=24:00:00
+#PBS -l walltime=04:00:00
 #PBS -l select=1:ncpus=4:mem=16gb
 #PBS -J 1-12
-#PBS -N chlaa_exp5p
-#PBS -o /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/output_experiment/
-#PBS -e /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/output_experiment/
+#PBS -N chlaa_scenarios
+#PBS -o /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/output/
+#PBS -e /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/output/
 
 # =========================================================================
-# PBS Array Job for 5-Parameter Experiment
+# PBS Array Job for Multi-Site Scenario Analysis
 # =========================================================================
-# Tests whether beta_p2p is identifiable with contam_half_sat fixed and
-# reporting_rate frozen throughout.
+#
+# Runs scenario analysis for each health zone using the fitted outputs
+# from 01_02_fitting_all_HZs.R. Each job processes one HZ independently.
+#
+# Prerequisite: 01_02 fitting must have completed for the target HZs.
+# Fit artifacts must exist in figures/.rds files/{hz_name}_fit.rds.
+#
+# To submit: qsub run_scenario_analysis.pbs
+# To monitor: qstat -t -u $USER
+#
 # =========================================================================
 
 # Activate R environment
 eval "$(~/miniforge3/bin/conda shell.bash hook)"
 conda activate Renv
 
-# Define health zones array (order must match PBS_ARRAY_INDEX)
+# Define health zones array (must match run_All_HZ_fitting.pbs ordering)
 HZ_NAMES=(
   "dummy"           # Index 0 (unused, PBS arrays start at 1)
   "alunguli"        # Index 1
@@ -38,7 +46,7 @@ HZ_NAMES=(
 HZ_NAME="${HZ_NAMES[$PBS_ARRAY_INDEX]}"
 
 echo "========================================"
-echo "5-Parameter Experiment"
+echo "PBS Array Job Information"
 echo "========================================"
 echo "Job ID: $PBS_JOBID"
 echo "Array Index: $PBS_ARRAY_INDEX"
@@ -48,8 +56,16 @@ echo "Start Time: $(date)"
 echo "========================================"
 echo ""
 
-# Run the experiment script
-Rscript /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/01_05_experiment_reduced_params.R "$HZ_NAME"
+# Check that the fit artifact exists before running
+FIT_FILE="/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures/.rds files/${HZ_NAME}_fit.rds"
+if [ ! -f "$FIT_FILE" ]; then
+    echo "ERROR: Fit artifact not found: $FIT_FILE"
+    echo "Run 01_02_fitting_all_HZs.R for this HZ first."
+    exit 1
+fi
+
+# Run the scenario analysis script for this specific health zone
+Rscript /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/02_02_scenario_analysis_all_HZs.R "$HZ_NAME"
 
 EXIT_CODE=$?
 

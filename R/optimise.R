@@ -31,7 +31,7 @@
 #' - cost_cati_per_person_day
 #'
 #' Budget is spent on:
-#' - vaccination doses (vax1_total_doses, vax1_doses_per_day within the campaign window)
+#' - vaccination doses (vax1_total_doses within the campaign window)
 #' - WASH (implemented by setting intervention effects; this is a placeholder mapping)
 #'
 #' @return A list with best allocation and a data.frame of evaluated allocations.
@@ -102,7 +102,6 @@ chlaa_optimise_budget <- function(pars,
     p$vax1_start <- min(time)
     p$vax1_end <- min(time) + dur_vax
     p$vax1_total_doses <- doses
-    p$vax1_doses_per_day <- if (dur_vax > 0) doses / dur_vax else 0
 
     p$chlor_start <- min(time); p$chlor_end <- max(time) + 1; p$chlor_effect <- 0.3 * intensity_wash
     p$hyg_start <- min(time); p$hyg_end <- max(time) + 1; p$hyg_effect <- 0.3 * intensity_wash

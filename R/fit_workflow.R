@@ -25,11 +25,18 @@ chlaa_prepare_data <- function(data,
     stringsAsFactors = FALSE
   )
 
-  # Pass through deaths column if present
+  # Pass through deaths column if present.  The odin model gates the
+
+  # deaths comparison on has_deaths: when has_deaths = 0 and deaths = 0,
+  # NegBin(0 | mu=0, size) = 1 so the log-likelihood contribution is 0
+  # (genuinely non-informative, unlike deaths=NA which dust2 mishandles).
   if ("deaths" %in% names(data)) {
-    out$deaths <- data[["deaths"]]
+    out$deaths <- as.integer(round(data[["deaths"]]))
     out$deaths[is.na(out$deaths)] <- 0L
-    out$deaths <- as.integer(round(out$deaths))
+    out$has_deaths <- as.integer(!is.na(data[["deaths"]]))
+  } else {
+    out$deaths <- 0L
+    out$has_deaths <- 0L
   }
 
   if (any(!is.finite(out$time))) stop("time values must be finite numeric", call. = FALSE)

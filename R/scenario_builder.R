@@ -62,12 +62,11 @@ chlaa_trigger_time_from_sim <- function(sim, threshold, var = "inc_symptoms", fu
 
   if (regimen == "1dose") {
     doses1 <- total_doses
-    rate1 <- doses1 / campaign_days
     return(list(
       vax1_start = start1, vax1_end = end1,
-      vax1_total_doses = doses1, vax1_doses_per_day = rate1,
+      vax1_total_doses = doses1,
       vax2_start = 0, vax2_end = 0,
-      vax2_total_doses = 0, vax2_doses_per_day = 0
+      vax2_total_doses = 0
     ))
   }
 
@@ -75,21 +74,18 @@ chlaa_trigger_time_from_sim <- function(sim, threshold, var = "inc_symptoms", fu
   doses1 <- people
   doses2 <- people
 
-  rate1 <- doses1 / campaign_days
-
   start2 <- end1 + dose_interval
   end2 <- start2 + campaign_days
   if (!is.null(horizon)) {
     start2 <- min(start2, horizon)
     end2 <- min(end2, horizon)
   }
-  rate2 <- doses2 / campaign_days
 
   list(
     vax1_start = start1, vax1_end = end1,
-    vax1_total_doses = doses1, vax1_doses_per_day = rate1,
+    vax1_total_doses = doses1,
     vax2_start = start2, vax2_end = end2,
-    vax2_total_doses = doses2, vax2_doses_per_day = rate2
+    vax2_total_doses = doses2
   )
 }
 
@@ -164,8 +160,8 @@ chlaa_make_aa_scenarios <- function(pars,
         ctc_start = 0, ctc_end = 0,
         orc_capacity = 0,
         ctc_capacity = 0,
-        vax1_start = 0, vax1_end = 0, vax1_doses_per_day = 0, vax1_total_doses = 0,
-        vax2_start = 0, vax2_end = 0, vax2_doses_per_day = 0, vax2_total_doses = 0
+        vax1_start = 0, vax1_end = 0, vax1_total_doses = 0,
+        vax2_start = 0, vax2_end = 0, vax2_total_doses = 0
       ))
     ))
   }
@@ -195,8 +191,8 @@ chlaa_make_aa_scenarios <- function(pars,
       chlaa_scenario("aa_no_vax", c(
         aa_common,
         list(
-          vax1_start = 0, vax1_end = 0, vax1_doses_per_day = 0, vax1_total_doses = 0,
-          vax2_start = 0, vax2_end = 0, vax2_doses_per_day = 0, vax2_total_doses = 0,
+          vax1_start = 0, vax1_end = 0, vax1_total_doses = 0,
+          vax2_start = 0, vax2_end = 0, vax2_total_doses = 0,
           ve_1 = ve1_use, ve_2 = ve2_use,
           vax_immunity_1 = vim1_use, vax_immunity_2 = vim2_use
         )

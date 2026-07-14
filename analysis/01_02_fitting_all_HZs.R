@@ -25,9 +25,11 @@ library(tidyverse)
 data_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/data"
 output_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/output"
 fig_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures"
+rds_dir <- file.path(fig_dir, ".rds files")
 
 dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(rds_dir, showWarnings = FALSE, recursive = TRUE)
 
 # ---- Shared plotting helper ----
 
@@ -394,6 +396,18 @@ fit_hz <- function(hz_name,
     # seed from pre-outbreak data
 
     pop_hz <- hz_weekly$population[1]
+
+    # Scale contam_half_sat by population ratio to make environmental FOI
+    # depend on per-capita prevalence, keeping trans_prob comparable across zones
+    pop_ref <- 516000
+    contam_half_sat_scaled <- 0.01 * (pop_hz / pop_ref)
+    if (verbose) {
+        cat(sprintf(
+            "contam_half_sat (scaled): %.6f  (pop ratio: %.3f)\n",
+            contam_half_sat_scaled, pop_hz / pop_ref
+        ))
+    }
+
     seed_date <- outbreak_start - 14
     seed_row <- hz_weekly %>%
         filter(date <= seed_date) %>%
@@ -427,9 +441,9 @@ fit_hz <- function(hz_name,
         E0 = E0_val,
         M0 = 0,
         immunity_asym = 280,
-        beta_p2p = 0,
-        contam_half_sat = 1.0,
-        trans_prob = 0.003225 * (300000 / pop_hz),
+        contact_rate = 0,
+        contam_half_sat = contam_half_sat_scaled,
+        trans_prob = 1e-3,
         incubation_time = 4.845,
         duration_sym = 14.48,
         seek_mild = 0.1,
@@ -523,8 +537,8 @@ fit_hz <- function(hz_name,
                 E0 = E0,
                 M0 = 0,
                 immunity_asym = 280,
-                beta_p2p = 0,
-                contam_half_sat = 1.0,
+                contact_rate = 0,
+                contam_half_sat = contam_half_sat_scaled,
                 trans_prob = trans_prob,
                 incubation_time = 4.845,
                 duration_sym = 14.48,
@@ -598,8 +612,8 @@ fit_hz <- function(hz_name,
 
     fit_prior_full <- monty::monty_dsl(
         {
-            log_trans_prob ~ Normal(-7.600902, 1.2)
-            logit_reporting_rate ~ Uniform(-2.944439, -1.098612)
+            log_trans_prob ~ Uniform(-9.21034, -4.60517) # log(1e-4) to log(1e-2)
+            logit_reporting_rate ~ Uniform(-2.751535, -0.847298) # qlogis(c(0.06, 0.30))
             log_obs_size ~ Uniform(0, 5.703782)
             log_E0 ~ Uniform(2.302585, 6.684612)
         },
@@ -608,18 +622,14 @@ fit_hz <- function(hz_name,
 
     fit_prior_freeze <- monty::monty_dsl(
         {
-            log_trans_prob ~ Normal(-7.600902, 1.2)
+            log_trans_prob ~ Uniform(-9.21034, -4.60517) # log(1e-4) to log(1e-2)
             log_obs_size ~ Uniform(0, 5.703782)
             log_E0 ~ Uniform(2.302585, 6.684612)
         },
         gradient = FALSE
     )
 
-    # Scale starting trans_prob by population: smaller populations need higher
-    # trans_prob to generate the same attack rate via the environmental route.
-    ref_pop <- 300000
-    tp_scale <- ref_pop / pop_hz
-    tp_starts <- c(0.003225, 1.6e-3, 4.0e-4) * tp_scale
+    tp_starts <- c(1e-3, 5e-4, 5e-3)
 
     fit_starts_full <- list(
         make_start(tp_starts[1], 0.15, 30, E0_val),
@@ -852,13 +862,13 @@ fit_hz <- function(hz_name,
         burnin = 0.25,
         scale = "natural"
     )
-    ggsave(file.path(fig_dir, sprintf("diagnosis_%s_production_trace.png", hz_name)),
+    ggsave(file.path(fig_dir, sprintf("fitting_%s_production_trace.png", hz_name)),
         p_trace,
         width = 12, height = 8, dpi = 300
     )
 
     p_lltrace <- chlaa_plot_likelihood_trace(fit, burnin = 0.25, thin = 2)
-    ggsave(file.path(fig_dir, sprintf("diagnosis_%s_production_likelihood_trace.png", hz_name)),
+    ggsave(file.path(fig_dir, sprintf("fitting_%s_production_likelihood_trace.png", hz_name)),
         p_lltrace,
         width = 12, height = 8, dpi = 300
     )
@@ -872,7 +882,7 @@ fit_hz <- function(hz_name,
     )
 
     ggsave(
-        file.path(fig_dir, sprintf("diagnosis_%s_production_pairs.png", hz_name)),
+        file.path(fig_dir, sprintf("fitting_%s_production_pairs.png", hz_name)),
         plot = p_pairs,
         width = 10,
         height = 10,
@@ -885,7 +895,7 @@ fit_hz <- function(hz_name,
         burnin = 0.25,
         scale = "natural"
     )
-    ggsave(file.path(fig_dir, sprintf("diagnosis_%s_production_distributions.png", hz_name)),
+    ggsave(file.path(fig_dir, sprintf("fitting_%s_production_distributions.png", hz_name)),
         p_dist,
         width = 12, height = 8, dpi = 300
     )
@@ -903,7 +913,7 @@ fit_hz <- function(hz_name,
         seed = seed_prod
     )
 
-    ggsave(file.path(fig_dir, sprintf("diagnosis_%s_production_fit.png", hz_name)),
+    ggsave(file.path(fig_dir, sprintf("fitting_%s_production_fit.png", hz_name)),
         p_fit,
         width = 10, height = 6, dpi = 300
     )
@@ -925,9 +935,9 @@ fit_hz <- function(hz_name,
         timestamp = Sys.time()
     )
 
-    saveRDS(fit_output, file.path(output_dir, sprintf("%s_fit.rds", hz_name)))
+    saveRDS(fit_output, file.path(rds_dir, sprintf("%s_fit.rds", hz_name)))
 
-    if (verbose) cat("\nFit saved to:", file.path(output_dir, sprintf("%s_fit.rds", hz_name)), "\n")
+    if (verbose) cat("\nFit saved to:", file.path(rds_dir, sprintf("%s_fit.rds", hz_name)), "\n")
     if (verbose) cat("Figures saved to:", fig_dir, "\n")
 
     return(fit_output)
@@ -957,7 +967,7 @@ if (length(args) > 0) {
                 hz_name = hz_to_fit,
                 error = conditionMessage(e),
                 timestamp = Sys.time()
-            ), file.path(output_dir, sprintf("%s_FAILED.rds", hz_to_fit)))
+            ), file.path(rds_dir, sprintf("%s_FAILED.rds", hz_to_fit)))
             NULL
         }
     )
