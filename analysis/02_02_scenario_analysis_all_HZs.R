@@ -25,6 +25,34 @@ library(ggplot2)
 library(dplyr)
 library(tidyr)
 
+# ---- Global constants (must match 01_02 — needed by deserialized packer closures) ----
+
+H_REF <- 1.0
+POP_REF <- 516000
+RR_FIXED <- 0.30
+
+seed_state_names <- c("E0", "A0", "M0", "Sev0", "Mu0", "Mt0", "Sevu0", "Sevt0", "C0")
+
+seed_state <- function(E0, p) {
+    newI <- E0 / p$incubation_time
+    nsymp <- newI * (1 - p$prop_asym)
+    s <- list(
+        E0    = E0,
+        A0    = newI * p$prop_asym * p$duration_asym,
+        M0    = nsymp * (1 - p$p_progress_severe) * p$time_to_next_stage,
+        Sev0  = nsymp * p$p_progress_severe * p$time_to_next_stage,
+        Mu0   = nsymp * (1 - p$p_progress_severe) * (1 - p$seek_mild) * p$duration_sym,
+        Mt0   = nsymp * (1 - p$p_progress_severe) * p$seek_mild * p$duration_sym,
+        Sevu0 = nsymp * p$p_progress_severe * (1 - p$seek_severe) * p$duration_sym,
+        Sevt0 = nsymp * p$p_progress_severe * p$seek_severe * p$duration_sym
+    )
+    shed <- p$shed_asym * s$A0 +
+        p$shed_mild * (s$M0 + s$Mu0) + p$shed_mild * p$treated_shed_mult_orc * s$Mt0 +
+        p$shed_severe * (s$Sev0 + s$Sevu0) + p$shed_severe * p$treated_shed_mult_ctc * s$Sevt0
+    s$C0 <- (shed / p$contam_scale / p$time_to_contaminate) * p$water_clearance_time
+    s
+}
+
 # ---- Setup ----
 
 data_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/data"

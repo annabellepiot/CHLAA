@@ -1,0 +1,45 @@
+#!/bin/bash
+#PBS -l walltime=24:00:00
+#PBS -l select=1:ncpus=4:mem=16gb
+#PBS -N chlaa_nyiragongo_comp
+#PBS -o /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/output/
+#PBS -e /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/output/
+
+# =========================================================================
+# PBS Job for Nyiragongo Comparative Fitting
+# =========================================================================
+#
+# Single-job script (not an array) that runs the Nyiragongo comparative
+# fitting against a previously published analysis.
+#
+# To submit: qsub run_nyiragongo_comparative.pbs
+# To monitor: qstat -u $USER
+#
+# =========================================================================
+
+# Activate R environment
+eval "$(~/miniforge3/bin/conda shell.bash hook)"
+conda activate Renv
+
+echo "========================================"
+echo "Nyiragongo Comparative Fitting"
+echo "========================================"
+echo "Job ID: $PBS_JOBID"
+echo "Node: $(hostname)"
+echo "Start Time: $(date)"
+echo "========================================"
+echo ""
+
+Rscript /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/01_03_debug_Nyiragongo_compare_samedatespreviousstudy.R
+
+EXIT_CODE=$?
+
+echo ""
+echo "========================================"
+echo "Job Complete"
+echo "========================================"
+echo "End Time: $(date)"
+echo "Exit Code: $EXIT_CODE"
+echo "========================================"
+
+exit $EXIT_CODE
