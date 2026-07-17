@@ -1,0 +1,5 @@
+"scenario","total_cases","total_deaths","cases_averted","deaths_averted","peak_incidence","time_peak","time_to_control","hz"
+"aa_response",891.02,35.9,4293.4,415.44,37.04,46.06,325.5,"limete"
+"aa_response_plus_vaccine",770.68,31.84,4413.74,419.5,34.6,46.9,335.363636363636,"limete"
+"fitted_response",5184.42,451.34,0,0,193.18,387.38,NA,"limete"
+"no_interventions",8510.66,1215.4,-3326.24,-764.06,219.94,271.6,NA,"limete"

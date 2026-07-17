@@ -1,0 +1,5 @@
+"scenario","total_cases","total_deaths","cases_averted","deaths_averted","peak_incidence","time_peak","time_to_control","hz"
+"aa_response",3157.4,86.32,855.02,326.46,119.52,58.52,NA,"opala"
+"aa_response_plus_vaccine",3088.14,84.66,924.28,328.12,113.5,54.46,NA,"opala"
+"fitted_response",4012.42,412.78,0,0,204.26,55.02,NA,"opala"
+"no_interventions",4067.68,601.12,-55.26,-188.34,203.16,53.9,NA,"opala"

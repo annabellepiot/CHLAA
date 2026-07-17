@@ -114,12 +114,19 @@ cat(sprintf("  ORC: days %d–%d\n", orc_start_day, orc_end_day))
 cat(sprintf("  CTC: days %d–%d\n", ctc_start_day, ctc_end_day))
 cat(sprintf("  Chlor/Hyg/CATI: days %d–%d\n", chlor_start_day, chlor_end_day))
 cat(sprintf("  Vax1: days %d–%d (%d doses)\n", vax1_start_day, vax1_end_day, vax1_total_doses))
+cat(sprintf("  Latrines: start=%d, end=%d, effect=%.2f → interval [%d,%d) is empty, SAFE\n",
+    lat_start_day, lat_end_day, 0, lat_start_day, lat_end_day))
 
 # Build vaccination schedule arrays
 vax1_n_days <- vax1_end_day - vax1_start_day + 1L
 vax1_daily <- vax1_total_doses / vax1_n_days
 vax1_sched_time <- c(as.integer(time_start), as.integer(vax1_start_day), as.integer(vax1_end_day + 1L))
 vax1_sched_doses <- c(0, vax1_daily, 0)
+
+cat(sprintf("  Vax1 schedule: %d entries, daily rate = %.0f, sum = %.0f\n",
+    length(vax1_sched_time), vax1_daily, vax1_daily * vax1_n_days))
+cat(sprintf("  Vax1 schedule times: [%s]\n", paste(vax1_sched_time, collapse = ", ")))
+cat(sprintf("  Vax1 schedule doses: [%s]\n", paste(round(vax1_sched_doses, 1), collapse = ", ")))
 
 # Empty vax2 schedule
 vax2_sched_time <- c(as.integer(time_start), as.integer(time_start + 1L))
@@ -156,10 +163,10 @@ make_nyiragongo_pars <- function(trans_prob, obs_size, E0, frac_neff = 0.10) {
     ctc_end = ctc_end_day,
     chlor_start = chlor_start_day,
     chlor_end = chlor_end_day,
-    chlor_effect = 0.10,
+    chlor_effect = 0.20,
     hyg_start = hyg_start_day,
     hyg_end = hyg_end_day,
-    hyg_effect = 0.10,
+    hyg_effect = 0.20,
     cati_start = cati_start_day,
     cati_end = cati_end_day,
     cati_effect = 0.10,
@@ -247,6 +254,7 @@ plot_case_fit <- function(fit, observed, title, seed, burnin = 0.25) {
     vars = "inc_symptoms_weekly",
     include_cases = TRUE,
     obs_model = "nbinom",
+    quantiles = c(0.025, 0.125, 0.25, 0.5, 0.75, 0.875, 0.975),
     n_draws = 200,
     burnin = burnin,
     seed = seed,
@@ -256,15 +264,53 @@ plot_case_fit <- function(fit, observed, title, seed, burnin = 0.25) {
   fit_cases <- fc |>
     filter(variable == "cases") |>
     left_join(observed |> select(time, date), by = "time")
+
+  col_beige <- "#e2b19b"
+  col_red   <- "#911e12"
+  col_green <- "#2f6a4e"
+  col_gray  <- "#494949"
+
   ggplot() +
-    geom_ribbon(data = fit_cases, aes(date, ymin = q0p025, ymax = q0p975),
-                fill = "#911e12", alpha = 0.25) +
-    geom_ribbon(data = fit_cases, aes(date, ymin = q0p25, ymax = q0p75),
-                fill = "#e2b19b", alpha = 0.45) +
-    geom_line(data = fit_cases, aes(date, q0p5), colour = "#2f6a4e", linewidth = 0.8) +
-    geom_line(data = observed, aes(date, cases), colour = "#494949", linewidth = 0.5) +
-    labs(x = NULL, y = "Weekly reported cases", title = title) +
-    theme_minimal()
+    # 95% UI
+    geom_line(data = fit_cases, aes(date, q0p025, colour = "95% UI"), linewidth = 0.5) +
+    geom_line(data = fit_cases, aes(date, q0p975, colour = "95% UI"), linewidth = 0.5) +
+    # 75% UI (dashed)
+    geom_line(data = fit_cases, aes(date, q0p125, colour = "75% UI"),
+              linetype = "dashed", linewidth = 0.5) +
+    geom_line(data = fit_cases, aes(date, q0p875, colour = "75% UI"),
+              linetype = "dashed", linewidth = 0.5) +
+    # 50% UI
+    geom_line(data = fit_cases, aes(date, q0p25, colour = "50% UI"), linewidth = 0.5) +
+    geom_line(data = fit_cases, aes(date, q0p75, colour = "50% UI"), linewidth = 0.5) +
+    # Mean
+    geom_line(data = fit_cases, aes(date, q0p5, colour = "Mean"), linewidth = 0.8) +
+    # Historical data
+    geom_line(data = observed, aes(date, cases, colour = "Historical data"), linewidth = 0.5) +
+    scale_colour_manual(
+      name = NULL,
+      values = c("Historical data" = col_gray, "Mean" = col_green,
+                 "50% UI" = col_beige, "75% UI" = col_beige, "95% UI" = col_red),
+      breaks = c("Historical data", "Mean", "50% UI", "75% UI", "95% UI"),
+      guide = guide_legend(
+        override.aes = list(
+          linetype = c("solid", "solid", "solid", "dashed", "solid"),
+          linewidth = c(0.5, 0.8, 0.5, 0.5, 0.5)
+        )
+      )
+    ) +
+    scale_x_date(date_labels = "%b %Y", date_breaks = "3 months") +
+    labs(x = "Date", y = "No. of cholera cases recorded/week", title = title) +
+    theme_bw(base_size = 14, base_family = "Helvetica") +
+    theme(
+      plot.title = element_text(face = "bold"),
+      axis.title = element_text(face = "bold"),
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      legend.position = c(0.98, 0.98),
+      legend.justification = c(1, 1),
+      legend.background = element_rect(colour = "black", linewidth = 0.3),
+      legend.text = element_text(size = 12),
+      panel.grid.minor = element_blank()
+    )
 }
 
 # -----------------------------------------------------------------------------
@@ -483,7 +529,7 @@ ggsave(file.path(fig_dir, "fitting_nyiragongo_comparative_distributions.png"),
 
 p_fit <- plot_case_fit(
   fit, nyiragongo,
-  "Nyiragongo weekly cases (08-2022 to 09-2024)",
+  "Cholera response model projection",
   seed = seed_prod
 )
 print(p_fit)
@@ -513,7 +559,6 @@ fit_artifact <- list(
   total_cases = sum(nyiragongo$cases),
   n_weeks = nrow(nyiragongo),
   fitted_parameters = natural_fit_names,
-  notes = "Current pipeline choices: frac_neff fitted, RR=0.30 fixed, seed_state, immunity_asym=280, seek_mild=0.1, seek_severe=0.85, contam_half_sat census-based",
   timestamp = Sys.time()
 )
 
@@ -521,3 +566,138 @@ saveRDS(fit_artifact, file.path(rds_dir, "nyiragongo_comparative_fit.rds"))
 
 cat("Fit artifact saved to:", file.path(rds_dir, "nyiragongo_comparative_fit.rds"), "\n")
 message("Nyiragongo comparative fitting complete.")
+
+
+# =============================================================================
+# QUICK EXPLORATION RUN (skip in PBS — run interactively)
+# =============================================================================
+# Minimal pMCMC: 1 chain, 10 particles, 200 steps.
+# Tweak any parameter below (seek_severe, chlor_effect, etc.) and re-run
+# this block to see the effect on the fit plot.
+#
+# To use: source() the full script first (or run up to here), then
+# run this block as needed.
+# =============================================================================
+
+if (interactive()) {
+
+  # ---- Tweakable parameters ----
+  # Change any of these to explore how the fit responds.
+  # Fitted params (MCMC starting point):
+  quick_trans_prob     <- tp_starts[2]   # middle R0 start
+  quick_obs_size       <- 30
+  quick_E0             <- E0_val
+  quick_frac_neff      <- 0.10
+
+  # Fixed params (baked into the packer, not fitted):
+  quick_seek_mild          <- 0.30
+  quick_seek_severe        <- 0.68
+  quick_chlor_effect       <- 0.20
+  quick_hyg_effect         <- 0.20
+  quick_cati_effect        <- 0.10
+  quick_immunity_asym      <- 280
+  quick_fatality_treated   <- 0.0021
+  quick_fatality_untreated <- 0.50
+  quick_ve_1               <- 0.4
+  quick_ve_2               <- 0.7
+
+  # ---- Build parameters with overrides ----
+  quick_pars <- make_nyiragongo_pars(
+    trans_prob = quick_trans_prob,
+    obs_size   = quick_obs_size,
+    E0         = quick_E0,
+    frac_neff  = quick_frac_neff
+  )
+  quick_pars$seek_mild          <- quick_seek_mild
+  quick_pars$seek_severe        <- quick_seek_severe
+  quick_pars$chlor_effect       <- quick_chlor_effect
+  quick_pars$hyg_effect         <- quick_hyg_effect
+  quick_pars$cati_effect        <- quick_cati_effect
+  quick_pars$immunity_asym      <- quick_immunity_asym
+  quick_pars$fatality_treated   <- quick_fatality_treated
+  quick_pars$fatality_untreated <- quick_fatality_untreated
+  quick_pars$ve_1               <- quick_ve_1
+  quick_pars$ve_2               <- quick_ve_2
+
+  # Re-seed state after overrides (seek values affect initial conditions)
+  ss <- seed_state(quick_E0, quick_pars)
+  for (nm in names(ss)) quick_pars[[nm]] <- ss[[nm]]
+
+  quick_pars <- add_transformed_values(quick_pars)
+  quick_starts <- list(quick_pars)
+  quick_packer <- make_packer(quick_pars)
+
+  quick_proposal <- matrix(0, 4, 4)
+  quick_proposal[1, 1] <- 0.02
+  quick_proposal[2, 2] <- 0.08
+  quick_proposal[3, 3] <- 0.08
+  quick_proposal[4, 4] <- 0.10
+
+  cat("\n=== QUICK EXPLORATION FIT ===\n")
+  cat("  seek_mild =", quick_seek_mild, "\n")
+  cat("  seek_severe =", quick_seek_severe, "\n")
+  cat("  chlor_effect =", quick_chlor_effect, "\n")
+  cat("  hyg_effect =", quick_hyg_effect, "\n")
+  cat("  cati_effect =", quick_cati_effect, "\n")
+  cat("  immunity_asym =", quick_immunity_asym, "\n")
+  cat("  fatality_treated =", quick_fatality_treated, "\n")
+  cat("  fatality_untreated =", quick_fatality_untreated, "\n")
+  cat("  ve_1 =", quick_ve_1, "\n")
+  cat("  ve_2 =", quick_ve_2, "\n")
+  cat("  frac_neff =", quick_frac_neff, "\n")
+
+  # Pre-flight check: verify starting density is finite
+  theta0 <- quick_packer$pack(quick_starts[[1]])
+  cat("\n  Starting theta:\n")
+  print(theta0)
+  log_prior <- monty::monty_model_density(fit_prior, theta0)
+  cat("  Log-prior at start:", log_prior, "\n")
+  if (!is.finite(log_prior)) {
+    bounds <- data.frame(
+      param = names(theta0),
+      value = as.numeric(theta0),
+      prior_lo = c(-9.21034, 0, 2.302585, -4.6),
+      prior_hi = c(-2.995732, 5.703782, 6.684612, 2.944439)
+    )
+    bounds$in_bounds <- bounds$value >= bounds$prior_lo & bounds$value <= bounds$prior_hi
+    print(bounds)
+    stop("Starting parameters outside prior bounds — adjust quick_* values above.")
+  }
+  cat("  Prior OK, running particle filter...\n")
+
+  quick_fit <- chlaa_fit_pmcmc(
+    data          = fit_data,
+    pars          = quick_pars,
+    chain_pars    = quick_starts,
+    n_chains      = 1L,
+    n_particles   = 10L,
+    n_steps       = 200L,
+    seed          = 99L,
+    prior         = fit_prior,
+    packer        = quick_packer,
+    proposal_var  = quick_proposal,
+    obs_interval  = 7,
+    time_start    = time_start
+  )
+
+  quick_report <- chlaa_fit_report(quick_fit, burnin = 0.25, thin = 1)
+  cat("Quick acceptance rate:", quick_report$acceptance_rate, "\n")
+  print(quick_report$posterior_summary)
+
+  p_quick <- plot_case_fit(
+    quick_fit, nyiragongo,
+    "Cholera response model projection (quick exploration)",
+    seed = 99L
+  )
+  print(p_quick)
+
+  # Print production fit for side-by-side comparison
+  p_prod <- plot_case_fit(
+    fit, nyiragongo,
+    "Cholera response model projection (production fit)",
+    seed = seed_prod
+  )
+  print(p_prod)
+
+  cat("\nQuick exploration complete. Tweak parameters above and re-run.\n")
+}

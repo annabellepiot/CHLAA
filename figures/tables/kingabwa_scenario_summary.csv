@@ -1,0 +1,3 @@
+"scenario","total_cases","total_deaths","cases_averted","deaths_averted","peak_incidence","time_peak","time_to_control","hz"
+"fitted_response",792.74,71.14,0,0,38.74,73.36,235.76,"kingabwa"
+"no_interventions",2096.58,302.76,-1303.84,-231.62,60.96,303.24,NA,"kingabwa"

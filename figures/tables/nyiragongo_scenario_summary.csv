@@ -1,0 +1,5 @@
+"scenario","total_cases","total_deaths","cases_averted","deaths_averted","peak_incidence","time_peak","time_to_control","hz"
+"aa_response",6357.04,721.18,1157.76,133.76,191.78,183.96,NA,"nyiragongo"
+"aa_response_plus_vaccine",6225.38,713.26,1289.42,141.68,192.82,187.32,NA,"nyiragongo"
+"fitted_response",7514.8,854.94,0,0,164.18,412.86,NA,"nyiragongo"
+"no_interventions",9439.4,1378.94,-1924.6,-524,191.04,196.7,NA,"nyiragongo"

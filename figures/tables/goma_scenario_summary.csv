@@ -1,0 +1,5 @@
+"scenario","total_cases","total_deaths","cases_averted","deaths_averted","peak_incidence","time_peak","time_to_control","hz"
+"aa_response",4194.24,99.02,2125.94,623.98,119.06,122.08,NA,"goma"
+"aa_response_plus_vaccine",4094.32,100.46,2225.86,622.54,106.76,130.9,NA,"goma"
+"fitted_response",6320.18,723,0,0,327.52,66.22,NA,"goma"
+"no_interventions",6388.72,943.44,-68.54,-220.44,331.3,66.78,NA,"goma"

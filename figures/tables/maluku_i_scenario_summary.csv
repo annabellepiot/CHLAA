@@ -1,0 +1,5 @@
+"scenario","total_cases","total_deaths","cases_averted","deaths_averted","peak_incidence","time_peak","time_to_control","hz"
+"aa_response",602.36,49.16,375.32,40.08,95.34,7.7,189.98,"maluku_i"
+"aa_response_plus_vaccine",582.48,49.84,395.2,39.4,94.86,7.28,186.62,"maluku_i"
+"fitted_response",977.68,89.24,0,0,93.92,8.26,224.583333333333,"maluku_i"
+"no_interventions",1253.36,195.14,-275.68,-105.9,95.56,7,346.5,"maluku_i"
