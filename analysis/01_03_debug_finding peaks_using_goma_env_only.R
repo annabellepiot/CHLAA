@@ -1,6 +1,13 @@
 # =============================================================================
 # Goma single-HZ fitting (matches 01_02 workflow for local troubleshooting)
 # =============================================================================
+# It is not necessary to refer to this script to run any of the analysis.
+# This script contains fitting for goma only, and then some tests on 4 HZs, to debug and determine is any
+# sustained R0 is produced and how to fix it.
+# Tests have been named Test E after the main fitting, followed by Test C, and then additional
+# tests/plotting to get helpful output.
+# This is the script that taught the changes implemeted in the main 01_02 script that runs all HZs.
+# It is messy and helpful reference for the experiments previosly run, but not intended for production use.
 
 library(chlaa)
 library(ggplot2)
