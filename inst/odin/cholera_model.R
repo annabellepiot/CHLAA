@@ -128,7 +128,12 @@ trans_mult <- max(0.0, 1.0 - (chlor_active * chlor_effect + hyg_active * hyg_eff
 shed_mult <- max(0.0, 1.0 - (lat_active * lat_effect))
 
 # State variables (integer-valued compartments; C is continuous)
-initial(S) <- N - E0 - A0 - M0 - Sev0 - Mu0 - Mt0 - Sevu0 - Sevt0 - Ra0 - Rs0 - V10 - V20
+# max(0, ...) guards against seeded/proposed initial infected+recovered+
+# vaccinated totals exceeding N (e.g. an MCMC proposal pairing a large E0
+# with a small frac_neff-derived N): every other initial() below is
+# non-negative by construction (seed_state() outputs are products of
+# non-negative rates), so S is the only one that needs this.
+initial(S) <- max(0, N - E0 - A0 - M0 - Sev0 - Mu0 - Mt0 - Sevu0 - Sevt0 - Ra0 - Rs0 - V10 - V20)
 initial(E) <- E0
 initial(A) <- A0
 initial(M) <- M0

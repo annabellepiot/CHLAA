@@ -186,12 +186,22 @@ get_hz_interventions <- function(hz_name, interventions, y_max,
 #
 # Rows can be added, removed, or reordered freely.
 
+## NOTE: CTC, ORC, and Hygiene all start on the same real-world date in
+## Kirotshe (2025-03-24). get_hz_interventions() nudges same-week starts
+## +/-5 days apart (in type order: CTC, ORC, Hygiene) so the three dashed
+## lines are visible instead of overlapping (landing at 03-19 / 03-24 /
+## 03-29) — if `spacing` in get_hz_interventions() ever changes, update
+## the arrow_x dates below. Those three labels are stacked to the left
+## (left-aligned, hjust = 0) with an arrow to their own line so they don't
+## sit on top of one another; CATI/Chlorination keep the original
+## centred style (hjust = 0.5).
 kirotshe_annotations <- tribble(
-  ~label,                   ~x,              ~y,   ~arrow_x,            ~arrow_y,
-  "Cholera Treatment Center (CTC) opened",            "2025-03-10",     190,  "2025-03-24",         170,
-  "Hygiene kits distributed",     "2025-02-15",     155,  "2025-03-24",         140,
-  "Localised response (CATI) teams deployed",   "2025-05-20",     200,  "2025-06-23",         180,
-  "Chlorination points at community water sources",    "2025-04-15",     130,  "2025-05-12",         115
+  ~label,                   ~x,              ~y,   ~arrow_x,            ~arrow_y,  ~hjust,
+  "Cholera Treatment Center (CTC) opened",            "2025-01-08",     195,  "2025-03-19",         180,  0,
+  "Oral Rehydration Counter (ORC) opened",             "2025-01-08",     160,  "2025-03-24",         145,  0,
+  "Hygiene kits distributed",     "2025-01-08",     125,  "2025-03-29",         110,  0,
+  "Localised response (CATI) teams deployed",   "2025-05-20",     200,  "2025-06-23",         180,  0.5,
+  "Chlorination points at community water sources",    "2025-04-15",     130,  "2025-05-12",         115,  0.5
 ) %>%
   mutate(
     x       = as.Date(x),
@@ -257,11 +267,11 @@ plot_main <- function(fit_cases, observed, intv, hz_label,
       ) +
       geom_label(
         data = annotations,
-        aes(x = x, y = y, label = label),
+        aes(x = x, y = y, label = label, hjust = hjust),
         colour = "black", size = 3.2, fontface = "bold",
         family = "Helvetica",
         fill = "white", linewidth = 0, label.padding = unit(0.15, "lines"),
-        hjust = 0.5, vjust = 0.5
+        vjust = 0.5
       )
   }
 
@@ -431,24 +441,24 @@ legend_data <- data.frame(
   xmin  = c(1, 4.5, 9,   14),
   xmax  = c(3, 7.5, 12,  16),
   xmid  = c(2, 6,   10.5, 15),
-  label = c("Median", "50% CrI", "95% CrI", "Observed cases"),
+  label = c("Median", "50% UI", "95% UI", "Observed cases"),
   stringsAsFactors = FALSE
 )
 
 p_legend_strip <- ggplot() +
-  # 95% CrI — light ribbon + line
+  # 95% UI — medium ribbon + line
   annotate("rect", xmin = 9, xmax = 12, ymin = 0.3, ymax = 0.7,
            fill = "#6baed6", alpha = 0.25) +
   annotate("segment", x = 9, xend = 12, y = 0.5, yend = 0.5,
            colour = "#08519c", linewidth = 0.7) +
-  annotate("text", x = 12.2, y = 0.5, label = "95% CrI",
+  annotate("text", x = 12.2, y = 0.5, label = "95% UI",
            hjust = 0, size = 3.5, family = "Helvetica", colour = "grey30") +
-  # 50% CrI — dark ribbon + line
+  # 50% UI — darker ribbon + line
   annotate("rect", xmin = 4.5, xmax = 7.5, ymin = 0.3, ymax = 0.7,
            fill = "#6baed6", alpha = 0.45) +
   annotate("segment", x = 4.5, xend = 7.5, y = 0.5, yend = 0.5,
            colour = "#08519c", linewidth = 0.7) +
-  annotate("text", x = 7.7, y = 0.5, label = "50% CrI",
+  annotate("text", x = 7.7, y = 0.5, label = "50% UI",
            hjust = 0, size = 3.5, family = "Helvetica", colour = "grey30") +
   # Median — line only
   annotate("segment", x = 0.5, xend = 3, y = 0.5, yend = 0.5,

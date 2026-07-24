@@ -410,7 +410,7 @@ public:
   static void update_internal(const shared_state& shared, internal_state& internal) {
   }
   static void initial(real_type time, const shared_state& shared, internal_state& internal, rng_state_type& rng_state, real_type* state) {
-    state[0] = shared.N - shared.E0 - shared.A0 - shared.M0 - shared.Sev0 - shared.Mu0 - shared.Mt0 - shared.Sevu0 - shared.Sevt0 - shared.Ra0 - shared.Rs0 - shared.V10 - shared.V20;
+    state[0] = monty::math::max<real_type>(0, shared.N - shared.E0 - shared.A0 - shared.M0 - shared.Sev0 - shared.Mu0 - shared.Mt0 - shared.Sevu0 - shared.Sevt0 - shared.Ra0 - shared.Rs0 - shared.V10 - shared.V20);
     state[1] = shared.E0;
     state[2] = shared.A0;
     state[3] = shared.M0;

@@ -27,9 +27,6 @@ tab_dir <- file.path(fig_dir, "tables")
 
 dir.create(tab_dir, showWarnings = FALSE, recursive = TRUE)
 
-# R0 scaling constant: K_R0 = POP_REF * 5.1446e-3 / H_REF (must match pipeline)
-K_R0 <- 2654.6
-
 # ---- Get list of successful fits ----
 
 fit_files <- list.files(rds_dir, pattern = "_fit\\.rds$", full.names = TRUE)
@@ -67,7 +64,10 @@ for (fit_file in fit_files) {
   tr <- chlaa_fit_trace(art$fit, burnin = 0.25, scale = "natural")
   tr_wide <- tr |>
     pivot_wider(names_from = parameter, values_from = value)
-  tr_wide$R0 <- tr_wide$frac_neff * K_R0 * tr_wide$trans_prob
+  pars_for_r0 <- art$pars_warm
+  pars_for_r0$trans_prob <- tr_wide$trans_prob
+  pars_for_r0$N <- tr_wide$N
+  tr_wide$R0 <- chlaa_r0(pars_for_r0)
 
   # Pivot back to long for summaries and plotting
   draws_long <- tr_wide |>
@@ -258,6 +258,14 @@ param_labels <- c(
   E0         = "Initial seed (E0)"
 )
 
+# Display-friendly health zone names (e.g. "ngiri_ngiri" -> "Ngiri Ngiri",
+# "maluku_i" -> "Maluku I"). Capitalises every word, unlike
+# tools::toTitleCase() which leaves single-letter words like "i" lowercase.
+hz_label <- function(x) {
+  x <- gsub("_", " ", x)
+  gsub("(?<=^|\\s)([a-z])", "\\U\\1", x, perl = TRUE)
+}
+
 # Order HZs by median R0
 hz_order <- all_draws |>
   filter(parameter == "R0") |>
@@ -277,7 +285,7 @@ summ <- draws_all |>
   ungroup()
 
 # Shared theme
-theme_halfeye <- theme_bw(base_size = 12) +
+theme_halfeye <- theme_bw(base_size = 12, base_family = "Helvetica") +
   theme(
     panel.grid.minor = element_blank(),
     strip.text       = element_text(face = "bold", size = 10),
@@ -292,23 +300,30 @@ summ_r0  <- summ |> filter(parameter == "R0")
 p_r0_density <- ggplot(draws_r0, aes(x = value, y = hz)) +
   geom_vline(xintercept = 1, linetype = 2, linewidth = 0.3, colour = "grey40") +
   stat_halfeye(
-    .width = c(0.8, 0.95), fill = "#6baed6",
+    .width = 0.95, fill = "#6baed6",
     normalize = "panels", slab_alpha = 0.8,
     point_size = 1.5, interval_size_range = c(0.6, 1.2)
   ) +
   geom_text(
     data = summ_r0,
-    aes(x = Inf, y = hz,
+    aes(x = 11.2, y = hz,
         label = sprintf("%.2f [%.2f, %.2f]", value, .lower, .upper)),
-    hjust = "inward", size = 3.0, colour = "grey30"
+    hjust = 1, size = 4, colour = "grey30", family = "Helvetica"
   ) +
+  scale_y_discrete(labels = hz_label) +
+  scale_x_continuous(breaks = seq(0, 10, 2.5)) +
+  coord_cartesian(xlim = c(0, 12)) +
   labs(
     x        = expression(R[0]),
     y        = NULL,
     title    = "R0 estimates by health zone",
-    subtitle = "Densities with median, 80% and 95% credible intervals"
+    subtitle = "Densities with median and 95% uncertainty interval"
   ) +
-  theme_halfeye
+  theme_halfeye +
+  theme(
+    panel.grid  = element_blank(),
+    axis.text.y = element_text(size = 4 * .pt)
+  )
 
 ggsave(file.path(fig_dir, "fitted_r0_density.png"),
   p_r0_density, width = 8, height = 7, dpi = 300)
@@ -332,7 +347,7 @@ p_lin <- ggplot(draws_lin, aes(x = value, y = hz)) +
     data = summ_lin,
     aes(x = Inf, y = hz,
         label = sprintf("%.3g [%.3g, %.3g]", value, .lower, .upper)),
-    hjust = "inward", size = 2.0, colour = "grey30"
+    hjust = "inward", size = 2.0, colour = "grey30", family = "Helvetica"
   ) +
   facet_wrap(~ parameter, scales = "free_x", nrow = 1,
              labeller = labeller(parameter = param_labels)) +
@@ -357,7 +372,7 @@ p_log <- ggplot(draws_log, aes(x = value, y = hz)) +
     data = summ_log,
     aes(x = Inf, y = hz,
         label = sprintf("%.3g [%.3g, %.3g]", value, .lower, .upper)),
-    hjust = "inward", size = 2.0, colour = "grey30"
+    hjust = "inward", size = 2.0, colour = "grey30", family = "Helvetica"
   ) +
   facet_wrap(~ parameter, scales = "free_x", nrow = 1,
              labeller = labeller(parameter = param_labels)) +
@@ -371,6 +386,7 @@ p_dist <- (p_lin / p_log) +
     title    = "Posterior parameter estimates by health zone",
     subtitle = "Half-eye densities with median, 80% and 95% credible intervals",
     theme    = theme(
+      text          = element_text(family = "Helvetica"),
       plot.title    = element_text(face = "bold", size = 14),
       plot.subtitle = element_text(size = 11)
     )
@@ -393,7 +409,7 @@ if (nrow(r0_table) > 0) {
       x = expression(R[0]),
       y = "Health Zone"
     ) +
-    theme_bw(base_size = 12) +
+    theme_bw(base_size = 12, base_family = "Helvetica") +
     theme(panel.grid.minor = element_blank())
 
   ggsave(file.path(fig_dir, "fitted_r0_comparison.png"),
@@ -409,7 +425,7 @@ param_wide_plot <- all_params |>
 if (all(c("trans_prob", "frac_neff") %in% colnames(param_wide_plot))) {
   p_ridge <- ggplot(param_wide_plot, aes(x = trans_prob, y = frac_neff)) +
     geom_point(aes(size = total_cases, colour = total_cases)) +
-    geom_text(aes(label = hz), hjust = -0.1, vjust = -0.1, size = 3) +
+    geom_text(aes(label = hz), hjust = -0.1, vjust = -0.1, size = 3, family = "Helvetica") +
     scale_colour_viridis_c(trans = "log10") +
     scale_size_continuous(range = c(3, 10)) +
     labs(
@@ -420,7 +436,7 @@ if (all(c("trans_prob", "frac_neff") %in% colnames(param_wide_plot))) {
       colour = "Total Cases",
       size   = "Total Cases"
     ) +
-    theme_bw(base_size = 12)
+    theme_bw(base_size = 12, base_family = "Helvetica")
 
   ggsave(file.path(fig_dir, "fitted_params_trans_vs_frac_neff.png"),
     p_ridge, width = 10, height = 8, dpi = 300)
@@ -431,7 +447,7 @@ if (all(c("trans_prob", "frac_neff") %in% colnames(param_wide_plot))) {
 if ("obs_size" %in% colnames(param_wide_plot)) {
   p_obs <- ggplot(param_wide_plot, aes(x = total_cases, y = obs_size)) +
     geom_point(aes(colour = frac_neff), size = 4) +
-    geom_text(aes(label = hz), hjust = -0.1, vjust = -0.1, size = 3) +
+    geom_text(aes(label = hz), hjust = -0.1, vjust = -0.1, size = 3, family = "Helvetica") +
     scale_x_log10() +
     scale_colour_viridis_c() +
     labs(
@@ -440,7 +456,7 @@ if ("obs_size" %in% colnames(param_wide_plot)) {
       y = "Observation Size (obs_size)",
       colour = "frac_neff"
     ) +
-    theme_bw(base_size = 12)
+    theme_bw(base_size = 12, base_family = "Helvetica")
 
   ggsave(file.path(fig_dir, "fitted_params_obssize_vs_cases.png"),
     p_obs, width = 10, height = 8, dpi = 300)
@@ -461,7 +477,7 @@ p_accept <- ggplot(accept_data, aes(x = reorder(hz, acceptance_rate), y = accept
     x = "Health Zone",
     y = "Acceptance Rate"
   ) +
-  theme_bw(base_size = 12) +
+  theme_bw(base_size = 12, base_family = "Helvetica") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 ggsave(file.path(fig_dir, "fitted_acceptance_rates.png"),
@@ -485,7 +501,7 @@ if (nrow(diag_table) > 0) {
       x = expression(hat(R)),
       y = "Health Zone"
     ) +
-    theme_bw(base_size = 12) +
+    theme_bw(base_size = 12, base_family = "Helvetica") +
     theme(
       panel.grid.minor = element_blank(),
       strip.text = element_text(face = "bold")
@@ -493,6 +509,17 @@ if (nrow(diag_table) > 0) {
 
   ggsave(file.path(fig_dir, "fitted_rhat_diagnostics.png"),
     p_rhat, width = 12, height = 10, dpi = 300)
+}
+
+# ---- 6b. Particle-count / log-likelihood variance check ----
+
+if (all(c("n_particles_used", "loglik_var_at_n_prod") %in% names(diag_table))) {
+  cat("\n", rep("=", 70), "\n", sep = "")
+  cat("Particle-count / log-likelihood variance check\n")
+  cat(rep("=", 70), "\n\n", sep = "")
+  print(diag_table |>
+    select(hz, n_particles_used, loglik_var_at_n_prod, loglik_var_target),
+  n = Inf)
 }
 
 # ---- Summary ----

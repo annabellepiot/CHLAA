@@ -210,6 +210,144 @@ ggsave(
   plot = p_scenario_diff_deaths, width = 12, height = 7, dpi = 300
 )
 
+# Cumulative excess cases & deaths at time snapshots
+# Two separate 2x2 faceted plots: one for cases, one for deaths
+
+# Find nearest available weekly time points to 100, 200, 300, 400 days
+target_days <- c(100, 200, 300, 400)
+snap_times <- vapply(target_days, function(d) {
+  scenario_time[which.min(abs(scenario_time - d))]
+}, numeric(1))
+
+# Scenario colours and ordering
+scenario_colours <- c(
+  "aa_response"              = "#cb86ff",
+  "aa_response_plus_vaccine" = "#88b517",
+  "no_interventions"         = "#f7776d"
+)
+baseline_colour <- "#0abfc6"
+scenario_order <- c("aa_response", "aa_response_plus_vaccine", "no_interventions")
+scenario_labels <- c(
+  "aa_response"               = "AA response",
+  "aa_response_plus_vaccine"  = "AA response\n+ vaccination",
+  "no_interventions"          = "No\ninterventions"
+)
+
+# Legend labels (single-line for legend)
+scenario_legend_labels <- c(
+  "aa_response"               = "AA response",
+  "aa_response_plus_vaccine"  = "AA response + vaccination",
+  "no_interventions"          = "No interventions"
+)
+
+# Helper: build one excess plot (cases or deaths)
+build_excess_plot <- function(var_name, y_label) {
+  dat <- scenario_fc %>%
+    filter(type == "difference", variable == var_name,
+           time %in% snap_times, scenario != "fitted_response") %>%
+    mutate(
+      facet = factor(paste0(target_days[match(time, snap_times)], " days"),
+                     levels = paste0(target_days, " days")),
+      scenario = factor(scenario, levels = scenario_order)
+    )
+
+  # Numeric labels: "median (95% UI lower to upper)"
+  dat <- dat %>%
+    mutate(num_label = paste0(
+      round(q0p5), "\n(",
+      round(q0p025), " to ",
+      round(q0p975), ")"
+    ))
+
+  # Position labels above/below the whisker depending on sign
+  dat <- dat %>%
+    mutate(label_y = ifelse(q0p5 >= 0, q0p975, q0p025),
+           label_vjust = ifelse(q0p5 >= 0, -0.15, 1.15))
+
+  # "Fitted response" label: placed at right side of 200 days facet
+  label_df <- data.frame(
+    facet = factor("200 days", levels = paste0(target_days, " days")),
+    x = "no_interventions", y = 0, label = "Fitted response "
+  )
+  label_df$x <- factor(label_df$x, levels = scenario_order)
+
+  # Compute a tighter y-axis range based on data
+  y_lo <- min(dat$q0p025, na.rm = TRUE)
+  y_hi <- max(dat$q0p975, na.rm = TRUE)
+  y_pad <- (y_hi - y_lo) * 0.25
+  y_limits <- c(y_lo - y_pad, y_hi + y_pad)
+
+  ggplot(dat, aes(x = scenario)) +
+    geom_hline(yintercept = 0, linetype = "dashed", colour = baseline_colour,
+               linewidth = 0.8) +
+    geom_crossbar(aes(y = q0p5, ymin = q0p25, ymax = q0p75, fill = scenario),
+                  width = 0.55, alpha = 0.8, colour = "grey30",
+                  linewidth = 0.3, middle.linewidth = 0.6) +
+    geom_errorbar(aes(ymin = q0p025, ymax = q0p975),
+                  width = 0.28, linewidth = 0.4, colour = "grey30") +
+    geom_text(aes(y = label_y, label = num_label, vjust = label_vjust),
+              size = 3.5, family = "Helvetica", lineheight = 0.85) +
+    geom_text(data = label_df, aes(x = x, y = y, label = label),
+              hjust = 1.1, vjust = -0.6, size = 3.5, colour = baseline_colour,
+              fontface = "bold", family = "Helvetica") +
+    facet_wrap(~ facet, nrow = 2) +
+    scale_x_discrete(labels = NULL, drop = FALSE) +
+    scale_y_continuous(limits = y_limits, expand = expansion(mult = 0.02)) +
+    scale_fill_manual(
+      values = scenario_colours,
+      labels = scenario_legend_labels
+    ) +
+    labs(
+      x = NULL, y = y_label,
+      title = "Kirotshe",
+      subtitle = "Days since start of modelled outbreak",
+      fill = NULL
+    ) +
+    guides(fill = guide_legend(override.aes = list(alpha = 0.9))) +
+    theme_minimal(base_family = "Helvetica", base_size = 13) +
+    theme(
+      panel.grid         = element_blank(),
+      panel.background   = element_rect(fill = "white", colour = "grey70"),
+      panel.border       = element_rect(fill = NA, colour = "grey70",
+                                        linewidth = 0.5),
+      plot.background    = element_rect(fill = "white", colour = NA),
+      strip.text         = element_text(face = "bold", size = 12),
+      axis.line          = element_blank(),
+      axis.ticks.x       = element_blank(),
+      axis.ticks.y       = element_line(colour = "grey40"),
+      axis.text.x        = element_blank(),
+      legend.position    = "right",
+      legend.text        = element_text(size = 10),
+      plot.title         = element_text(face = "bold", size = 14),
+      plot.subtitle      = element_text(size = 11, colour = "grey40"),
+      panel.spacing      = unit(1.2, "lines")
+    )
+}
+
+# Cases plot
+p_excess_cases <- build_excess_plot(
+  "cum_symptoms",
+  "Excess cumulative cases"
+)
+print(p_excess_cases)
+
+ggsave(file.path(fig_dir, "scenario_excess_cases_kirotshe.png"),
+       plot = p_excess_cases, width = 10, height = 9, dpi = 300)
+ggsave(file.path(fig_dir, "scenario_excess_cases_kirotshe.pdf"),
+       plot = p_excess_cases, width = 10, height = 9)
+
+# Deaths plot
+p_excess_deaths <- build_excess_plot(
+  "cum_deaths",
+  "Excess cumulative deaths"
+)
+print(p_excess_deaths)
+
+ggsave(file.path(fig_dir, "scenario_excess_deaths_kirotshe.png"),
+       plot = p_excess_deaths, width = 10, height = 9, dpi = 300)
+ggsave(file.path(fig_dir, "scenario_excess_deaths_kirotshe.pdf"),
+       plot = p_excess_deaths, width = 10, height = 9)
+
 # -----------------------------------------------------------------------------
 # 5. Decision summary
 # -----------------------------------------------------------------------------
@@ -246,3 +384,5 @@ scenario_comparison <- chlaa_compare_scenarios(
 print(scenario_comparison)
 
 message("Scenario workflow script complete. All figures saved to: ", fig_dir)
+
+

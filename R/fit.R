@@ -14,6 +14,9 @@
 #' @param data Data frame with columns time and cases.
 #' @param pars Starting parameter list.
 #' @param n_particles Number of particles for the dust2 filter likelihood.
+#' @param dt Discrete time step (days) for the dust2 filter. Default 0.25,
+#'   matching `chlaa_simulate()`/`chlaa_forecast_from_fit()` and other package
+#'   defaults, so that fitting and forecasting use the same discretisation.
 #' @param n_steps Number of MCMC steps.
 #' @param n_chains Number of MCMC chains.
 #' @param chain_pars Optional list of per-chain starting parameter lists. If
@@ -44,6 +47,7 @@
 chlaa_fit_pmcmc <- function(data,
                             pars,
                             n_particles = 200,
+                            dt = 0.25,
                             n_steps = 2000,
                             n_chains = 1,
                             chain_pars = NULL,
@@ -77,11 +81,13 @@ chlaa_fit_pmcmc <- function(data,
     stop("time_start must be strictly earlier than the first observation time", call. = FALSE)
   }
 
-  if (isTRUE(deterministic)) {
-    filter <- dust2::dust_unfilter_create(gen, time_start = time_start, data = data)
-  } else {
-    filter <- dust2::dust_filter_create(gen, time_start = time_start, data = data, n_particles = n_particles)
-  }
+  filter <- .chlaa_build_filter(
+    gen, data,
+    n_particles = n_particles,
+    dt = dt,
+    time_start = time_start,
+    deterministic = deterministic
+  )
 
   if (is.null(packer)) {
     packer <- chlaa_default_packer(pars)
@@ -131,9 +137,90 @@ chlaa_fit_pmcmc <- function(data,
   attr(res, "obs_interval") <- obs_interval
   attr(res, "time_start") <- time_start
   attr(res, "deterministic") <- isTRUE(deterministic)
+  attr(res, "dt") <- dt
 
   class(res) <- unique(c("chlaa_fit", class(res)))
   res
+}
+
+# Build a dust2 filter (stochastic) or unfilter (deterministic) for the
+# cholera generator. Shared by chlaa_fit_pmcmc() and chlaa_loglik_at() so the
+# two can never drift apart on filter-construction details (dt, time_start,
+# data prep).
+.chlaa_build_filter <- function(gen, data, n_particles, dt, time_start,
+                                deterministic, seed = NULL) {
+  if (isTRUE(deterministic)) {
+    dust2::dust_unfilter_create(gen, time_start = time_start, data = data, dt = dt)
+  } else {
+    dust2::dust_filter_create(
+      gen,
+      time_start = time_start, data = data,
+      n_particles = n_particles, dt = dt, seed = seed
+    )
+  }
+}
+
+#' Evaluate the filter log-likelihood at a fixed parameter set
+#'
+#' Re-runs the same filter construction used inside `chlaa_fit_pmcmc()` (same
+#' `dt`, same `chlaa_prepare_data()` prep, same `time_start`/`obs_interval`
+#' inference) at a single fixed parameter list, returning one scalar
+#' log-likelihood. Intended for pMCMC particle-count tuning: call repeatedly
+#' with different `seed`/`n_particles` at a fixed (e.g. posterior-median)
+#' `pars` to estimate `Var[log p-hat(y | pars)]`, the standard particle-marginal
+#' Metropolis-Hastings diagnostic (target roughly 1-2 at the posterior mode;
+#' see e.g. Doucet, Pitt & Sherlock-style pMCMC tuning guidance).
+#'
+#' This deliberately bypasses `monty` (no packer/prior involved): it drives
+#' the dust2 filter directly with `dust_likelihood_run()`, the same way
+#' `chlaa_simulate()` drives `dust_system_create()` with a plain parameter
+#' list, since what's needed here is the raw filter log-likelihood, not a
+#' posterior density.
+#'
+#' @param data Data frame with columns `time`, `cases`, and optionally
+#'   `deaths` (as for `chlaa_fit_pmcmc()`).
+#' @param pars A single named parameter list at which to evaluate the
+#'   log-likelihood, e.g. from `packer$unpack(theta_median)`.
+#' @param n_particles Number of particles for the particle filter.
+#' @param seed RNG seed for this filter evaluation.
+#' @param dt Discrete time step (days); should match the `dt` used to produce
+#'   `pars`/the fit being diagnosed. Default 0.25.
+#' @param obs_interval,time_start As in `chlaa_fit_pmcmc()`; inferred the same
+#'   way if `NULL`.
+#' @param deterministic If `TRUE`, use the deterministic unfilter instead of
+#'   the particle filter (near-zero variance; for testing only).
+#'
+#' @return A single numeric log-likelihood value.
+#' @export
+chlaa_loglik_at <- function(data, pars, n_particles = 200, seed = 1, dt = 0.25,
+                            obs_interval = NULL, time_start = NULL,
+                            deterministic = FALSE) {
+  .check_named_list(pars, "pars")
+
+  data <- chlaa_prepare_data(data, time_col = "time", cases_col = "cases")
+  observed_step <- .chlaa_observed_step(data)
+  obs_interval <- .chlaa_obs_interval(obs_interval, observed_step)
+  if (nrow(data) == 1) observed_step <- obs_interval
+  data$obs_interval <- obs_interval
+
+  gen <- chlaa_generator()
+  if (is.null(time_start)) {
+    time_start <- min(data$time) - observed_step
+  } else if (!is.numeric(time_start) || length(time_start) != 1 || !is.finite(time_start)) {
+    stop("time_start must be NULL or a single finite number", call. = FALSE)
+  }
+  if (time_start >= min(data$time)) {
+    stop("time_start must be strictly earlier than the first observation time", call. = FALSE)
+  }
+
+  filter <- .chlaa_build_filter(
+    gen, data,
+    n_particles = n_particles, dt = dt,
+    time_start = time_start, deterministic = deterministic, seed = seed
+  )
+
+  pars_use <- pars[names(pars) %in% attr(gen, "parameters")$name]
+  as.numeric(dust2::dust_likelihood_run(filter, pars_use))
 }
 
 .chlaa_n_chains <- function(n_chains) {

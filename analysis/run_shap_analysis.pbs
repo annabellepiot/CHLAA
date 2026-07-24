@@ -1,0 +1,89 @@
+#!/bin/bash
+#PBS -l walltime=00:30:00
+#PBS -l select=1:ncpus=4:mem=16gb
+#PBS -J 1-12
+#PBS -N chlaa_shapley
+#PBS -o /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/output/
+#PBS -e /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/output/
+
+# =========================================================================
+# PBS Array Job for Shapley-Value Intervention Attribution
+# =========================================================================
+#
+# Runs the Shapley decomposition (05_SHAP_values.R) for each health zone
+# using the fitted outputs from 01_02_fitting_all_HZs.R. Each job processes
+# one HZ independently (compute + cache only; the aggregate figures are
+# rebuilt by whichever task finishes last, and can also be rebuilt by
+# running the script again with no arguments).
+#
+# Prerequisite: 01_02 fitting must have completed for the target HZs.
+# Fit artifacts must exist in figures/.rds files/{hz_name}_fit.rds.
+#
+# Walltime calibrated empirically: 64 x 60 = 3,840 chlaa_simulate() calls
+# per zone (shared across both cases and deaths) took ~3-5 min/zone at
+# n_draws=60 in local testing (worst case ~5 min for the longest-running
+# outbreaks, e.g. kirotshe/goma/nyiragongo). 30 min gives a large margin.
+#
+# To submit: qsub run_shap_analysis.pbs
+# To monitor: qstat -t -u $USER
+#
+# =========================================================================
+
+# Activate R environment
+eval "$(~/miniforge3/bin/conda shell.bash hook)"
+conda activate Renv
+
+# Define health zones array (must match run_All_HZ_fitting.pbs ordering)
+HZ_NAMES=(
+  "dummy"           # Index 0 (unused, PBS arrays start at 1)
+  "alunguli"        # Index 1
+  "bumbu"           # Index 2
+  "goma"            # Index 3
+  "kindu"           # Index 4
+  "kingabwa"        # Index 5
+  "kirotshe"        # Index 6
+  "kokolo"          # Index 7
+  "limete"          # Index 8
+  "maluku_i"        # Index 9
+  "ngiri_ngiri"     # Index 10
+  "nyiragongo"      # Index 11
+  "opala"           # Index 12
+)
+
+# Get the health zone name for this array index
+HZ_NAME="${HZ_NAMES[$PBS_ARRAY_INDEX]}"
+
+echo "========================================"
+echo "PBS Array Job Information"
+echo "========================================"
+echo "Job ID: $PBS_JOBID"
+echo "Array Index: $PBS_ARRAY_INDEX"
+echo "Health Zone: $HZ_NAME"
+echo "Node: $(hostname)"
+echo "Start Time: $(date)"
+echo "========================================"
+echo ""
+
+# Check that the fit artifact exists before running
+FIT_FILE="/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures/.rds files/${HZ_NAME}_fit.rds"
+if [ ! -f "$FIT_FILE" ]; then
+    echo "ERROR: Fit artifact not found: $FIT_FILE"
+    echo "Run 01_02_fitting_all_HZs.R for this HZ first."
+    exit 1
+fi
+
+# Run the Shapley decomposition for this specific health zone
+Rscript /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/05_SHAP_values.R "$HZ_NAME"
+
+EXIT_CODE=$?
+
+echo ""
+echo "========================================"
+echo "Job Complete"
+echo "========================================"
+echo "Health Zone: $HZ_NAME"
+echo "End Time: $(date)"
+echo "Exit Code: $EXIT_CODE"
+echo "========================================"
+
+exit $EXIT_CODE
