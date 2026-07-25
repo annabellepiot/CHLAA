@@ -1,0 +1,90 @@
+========================================
+PBS Array Job Information
+========================================
+Job ID: 3423170[3].pbs-7
+Array Index: 3
+Health Zone: goma
+Node: cx3-3-17
+Start Time: Fri 24 Jul 17:59:07 BST 2026
+========================================
+
+
+============================================================
+Running array job for: goma 
+============================================================
+
+
+========================================
+Fitting health zone: goma 
+========================================
+Outbreak window: 2025-01-06 to 2025-11-30 
+Population: 296096 
+Outbreak weeks: 46 
+Total cases: 1868 
+Population: 296096
+contam_half_sat (census): 0.573829  (pop ratio: 0.574)
+Initial seeding: E0=480
+
+=== EXPLORATORY FIT ===
+Exploratory acceptance rate: 0.2005348 
+# A tibble: 4 × 6
+  parameter        mean     sd `q2p5%` `q50%` `q97p5%`
+  <chr>           <dbl>  <dbl>   <dbl>  <dbl>    <dbl>
+1 log_trans_prob  -3.36 0.277   -4.04   -3.29    -3.04
+2 log_obs_size     1.77 0.362    0.994   1.80     2.42
+3 log_E0           3.64 0.936    2.54    3.37     5.86
+4 logit_frac_neff -2.93 0.0858  -3.08   -2.94    -2.73
+
+Warm-start parameter values:
+  log_trans_prob = -3.289806
+  log_obs_size = 1.804730
+  log_E0 = 3.371471
+  logit_frac_neff = -2.938227
+
+=== PRODUCTION FIT ===
+
+=== Var[log-likelihood] vs particle count (at posterior median) ===
+    n_particles var_loglik
+100         100 0.21645988
+200         200 0.06484705
+400         400 0.03306714
+800         800 0.02076619
+Production acceptance rate: 0.404908 
+# A tibble: 4 × 6
+  parameter        mean     sd `q2p5%` `q50%` `q97p5%`
+  <chr>           <dbl>  <dbl>   <dbl>  <dbl>    <dbl>
+1 log_trans_prob  -3.21 0.136    -3.52  -3.19    -3.01
+2 log_obs_size     1.99 0.341     1.33   1.99     2.67
+3 log_E0           3.10 0.452     2.39   3.05     4.06
+4 logit_frac_neff -2.99 0.0721   -3.13  -2.99    -2.85
+
+=== R-hat and ESS ===
+# A tibble: 4 × 4
+  variable         rhat ess_bulk ess_tail
+  <chr>           <dbl>    <dbl>    <dbl>
+1 log_trans_prob   1.00    3176.    4040.
+2 log_obs_size     1.00    1412.    1730.
+3 log_E0           1.00    3075.    3797.
+4 logit_frac_neff  1.01    1574.    1872.
+
+Fit saved to: /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures/.rds files/goma_fit.rds 
+Figures saved to: /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures 
+
+SUCCESS: Completed fitting for goma 
+
+========================================
+Job Complete
+========================================
+Health Zone: goma
+End Time: Fri 24 Jul 20:40:28 BST 2026
+Exit Code: 0
+========================================
+
+====================================
+CPU Time used: 02:38:22
+CPU Percent: 99%
+Memory usage: 199500kb
+Approx Power usage: 0.0316
+Walltime usage: 02:42:21
+
+====================================

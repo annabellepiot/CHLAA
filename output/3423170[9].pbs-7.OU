@@ -1,0 +1,90 @@
+========================================
+PBS Array Job Information
+========================================
+Job ID: 3423170[9].pbs-7
+Array Index: 9
+Health Zone: maluku_i
+Node: cx3-2-2
+Start Time: Fri 24 Jul 18:00:25 BST 2026
+========================================
+
+
+============================================================
+Running array job for: maluku_i 
+============================================================
+
+
+========================================
+Fitting health zone: maluku_i 
+========================================
+Outbreak window: 2025-06-23 to 2026-04-30 
+Population: 246266 
+Outbreak weeks: 25 
+Total cases: 212 
+Population: 246266
+contam_half_sat (census): 0.477260  (pop ratio: 0.477)
+Initial seeding: E0=160
+
+=== EXPLORATORY FIT ===
+Exploratory acceptance rate: 0.5418895 
+# A tibble: 4 × 6
+  parameter         mean    sd `q2p5%` `q50%` `q97p5%`
+  <chr>            <dbl> <dbl>   <dbl>  <dbl>    <dbl>
+1 log_trans_prob  -4.76  1.08  -6.40   -4.63    -3.05 
+2 log_obs_size     0.382 0.273  0.0179  0.340    0.998
+3 log_E0           5.94  0.519  4.77    6.00     6.66 
+4 logit_frac_neff -3.22  0.775 -4.30   -3.42    -1.76 
+
+Warm-start parameter values:
+  log_trans_prob = -4.630247
+  log_obs_size = 0.341465
+  log_E0 = 5.997819
+  logit_frac_neff = -3.417009
+
+=== PRODUCTION FIT ===
+
+=== Var[log-likelihood] vs particle count (at posterior median) ===
+    n_particles  var_loglik
+100         100 0.033550639
+200         200 0.025467944
+400         400 0.012256452
+800         800 0.008894655
+Production acceptance rate: 0.2890549 
+# A tibble: 4 × 6
+  parameter         mean    sd `q2p5%` `q50%` `q97p5%`
+  <chr>            <dbl> <dbl>   <dbl>  <dbl>    <dbl>
+1 log_trans_prob  -8.34  0.487 -8.75   -8.40    -7.82 
+2 log_obs_size     0.293 0.224  0.0110  0.248    0.820
+3 log_E0           6.06  0.443  4.98    6.15     6.66 
+4 logit_frac_neff  2.20  0.780  0.596   2.34     2.91 
+
+=== R-hat and ESS ===
+# A tibble: 4 × 4
+  variable         rhat ess_bulk ess_tail
+  <chr>           <dbl>    <dbl>    <dbl>
+1 log_trans_prob   1.06     35.5     55.2
+2 log_obs_size     1.00    893.    1008. 
+3 log_E0           1.01    827.    1037. 
+4 logit_frac_neff  1.07     40.4     58.0
+
+Fit saved to: /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures/.rds files/maluku_i_fit.rds 
+Figures saved to: /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures 
+
+SUCCESS: Completed fitting for maluku_i 
+
+========================================
+Job Complete
+========================================
+Health Zone: maluku_i
+End Time: Fri 24 Jul 19:23:47 BST 2026
+Exit Code: 0
+========================================
+
+====================================
+CPU Time used: 01:21:46
+CPU Percent: 99%
+Memory usage: 199876kb
+Approx Power usage: 0.016200000000000003
+Walltime usage: 01:23:53
+
+====================================
