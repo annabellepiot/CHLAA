@@ -1,0 +1,90 @@
+========================================
+PBS Array Job Information
+========================================
+Job ID: 3423170[11].pbs-7
+Array Index: 11
+Health Zone: nyiragongo
+Node: cx3-2-3
+Start Time: Fri 24 Jul 18:00:41 BST 2026
+========================================
+
+
+============================================================
+Running array job for: nyiragongo 
+============================================================
+
+
+========================================
+Fitting health zone: nyiragongo 
+========================================
+Outbreak window: 2025-01-06 to 2025-11-30 
+Population: 509663 
+Outbreak weeks: 46 
+Total cases: 1369 
+Population: 509663
+contam_half_sat (census): 0.987719  (pop ratio: 0.988)
+Initial seeding: E0=700
+
+=== EXPLORATORY FIT ===
+Exploratory acceptance rate: 0.1417112 
+# A tibble: 4 × 6
+  parameter        mean    sd `q2p5%` `q50%` `q97p5%`
+  <chr>           <dbl> <dbl>   <dbl>  <dbl>    <dbl>
+1 log_trans_prob  -5.63 0.605   -6.44  -5.80   -4.29 
+2 log_obs_size     2.12 0.303    1.56   2.11    2.78 
+3 log_E0           4.53 0.431    3.47   4.57    5.19 
+4 logit_frac_neff -1.80 0.585   -2.98  -1.67   -0.866
+
+Warm-start parameter values:
+  log_trans_prob = -5.800356
+  log_obs_size = 2.110654
+  log_E0 = 4.574266
+  logit_frac_neff = -1.673534
+
+=== PRODUCTION FIT ===
+
+=== Var[log-likelihood] vs particle count (at posterior median) ===
+    n_particles var_loglik
+100         100 0.13449713
+200         200 0.07489338
+400         400 0.02556100
+800         800 0.01654849
+Production acceptance rate: 0.2551792 
+# A tibble: 4 × 6
+  parameter        mean    sd `q2p5%` `q50%` `q97p5%`
+  <chr>           <dbl> <dbl>   <dbl>  <dbl>    <dbl>
+1 log_trans_prob  -5.80 1.01    -7.36  -5.60   -4.31 
+2 log_obs_size     2.06 0.318    1.43   2.06    2.70 
+3 log_E0           4.54 0.409    3.67   4.54    5.28 
+4 logit_frac_neff -1.46 1.23    -2.98  -1.87    0.782
+
+=== R-hat and ESS ===
+# A tibble: 4 × 4
+  variable         rhat ess_bulk ess_tail
+  <chr>           <dbl>    <dbl>    <dbl>
+1 log_trans_prob   1.13     18.7     46.1
+2 log_obs_size     1.00    760.    1194. 
+3 log_E0           1.04     66.0    378. 
+4 logit_frac_neff  1.13     18.9     45.5
+
+Fit saved to: /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures/.rds files/nyiragongo_fit.rds 
+Figures saved to: /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures 
+
+SUCCESS: Completed fitting for nyiragongo 
+
+========================================
+Job Complete
+========================================
+Health Zone: nyiragongo
+End Time: Fri 24 Jul 20:53:29 BST 2026
+Exit Code: 0
+========================================
+
+====================================
+CPU Time used: 02:48:38
+CPU Percent: 99%
+Memory usage: 303320kb
+Approx Power usage: 0.03359999999999999
+Walltime usage: 02:53:25
+
+====================================
