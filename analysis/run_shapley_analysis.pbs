@@ -10,7 +10,7 @@
 # PBS Array Job for Shapley-Value Intervention Attribution
 # =========================================================================
 #
-# Runs the Shapley decomposition (05_SHAP_values.R) for each health zone
+# Runs the Shapley decomposition (05_Shapley_analysis.R) for each health zone
 # using the fitted outputs from 01_02_fitting_all_HZs.R. Each job processes
 # one HZ independently (compute + cache only; the aggregate figures are
 # rebuilt by whichever task finishes last, and can also be rebuilt by
@@ -73,7 +73,7 @@ if [ ! -f "$FIT_FILE" ]; then
 fi
 
 # Run the Shapley decomposition for this specific health zone
-Rscript /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/05_SHAP_values.R "$HZ_NAME"
+Rscript /rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/05_Shapley_analysis.R "$HZ_NAME"
 
 EXIT_CODE=$?
 

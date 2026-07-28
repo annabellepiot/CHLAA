@@ -69,7 +69,7 @@ dir.create(tables_dir, showWarnings = FALSE, recursive = TRUE)
 # ---- Core Scenario Function ----
 
 run_scenarios_hz <- function(hz_name,
-                             trigger_threshold = 50,
+                             trigger_threshold = if (hz_name %in% c("kirotshe", "nyiragongo", "goma")) 174 else 63,
                              campaign_days = 28,
                              vax_coverage = 0.20,
                              n_draws = 60,
@@ -133,12 +133,21 @@ run_scenarios_hz <- function(hz_name,
     response_end <- horizon + 1
     vaccine_doses <- floor(vax_coverage * pars_fit$N)
 
-    # Find trigger time (first week with cases >= threshold)
-    trigger_weeks <- observed$time[observed$cases >= trigger_threshold]
+    # Find trigger time: first week where the rolling 3-consecutive-week
+    # case TOTAL (not a per-week rate) reaches trigger_threshold.
+    # stats::filter(..., sides = 1) is namespace-qualified because
+    # library(dplyr) masks filter() in this file. sides = 1 makes each
+    # element the sum of itself and the two preceding weeks (a trailing
+    # 3-week window), giving NA for the first two weeks where a full
+    # 3-week history doesn't yet exist. trigger_time therefore lands on
+    # the 3rd (most recent) week of the first qualifying window - the
+    # earliest point the running total can actually be confirmed.
+    roll3_cases <- as.numeric(stats::filter(observed$cases, rep(1, 3), method = "convolution", sides = 1))
+    trigger_weeks <- observed$time[!is.na(roll3_cases) & roll3_cases >= trigger_threshold]
 
     if (length(trigger_weeks) == 0) {
         if (verbose) cat("WARNING: Trigger threshold (", trigger_threshold,
-            " cases) never reached. Skipping vaccination scenario.\n")
+            " cases over 3 weeks) never reached. Skipping vaccination scenario.\n")
         trigger_time <- NA_real_
         include_vax_scenario <- FALSE
     } else {
@@ -575,8 +584,12 @@ if (length(scenario_rds_files) == 0) {
             arrange(q0p5) %>%
             pull(hz)
 
+        # Facet rows are one-per-HZ; facet_grid places the FIRST factor level in
+        # the top row, so reverse the ascending excess ranking to keep the
+        # largest-excess zone at the top (consistent with the Shapley figures).
+        hz_levels_facet <- rev(hz_rank)
         composite_dat <- composite_dat %>%
-            mutate(hz = factor(hz, levels = hz_rank))
+            mutate(hz = factor(hz, levels = hz_levels_facet))
 
         # ---- Facet ordering/labels and scenario colours (matches
         #      02_01_scenario_workflow.R's palette) ----
@@ -625,59 +638,82 @@ if (length(scenario_rds_files) == 0) {
             ) %>%
             mutate(range = hi - lo) %>%
             tidyr::pivot_longer(c(lo, hi), names_to = "side", values_to = "x") %>%
-            mutate(x = ifelse(side == "lo", x - range * 0.55, x + range * 0.55)) %>%
+            mutate(x = ifelse(side == "lo", x - range * 0.45, x + range * 0.45)) %>%
             mutate(
                 scenario = factor("aa_response", levels = scenario_order_all),
-                hz = factor(hz_rank[1], levels = hz_rank)
+                hz = factor(hz_levels_facet[1], levels = hz_levels_facet)
             )
 
-        # "Fitted response" annotation next to the dashed baseline, shown
-        # once (top-left facet) rather than in every panel
-        label_df <- data.frame(
-            scenario = factor("aa_response", levels = scenario_order_all),
-            variable = factor("cum_symptoms", levels = c("cum_symptoms", "cum_deaths")),
-            x = 0, y = Inf, label = "Fitted response "
-        )
+        # Thin, purely decorative shaded band around the fitted-response baseline.
+        # The fitted response is normalised to 0, so this is a style cue (a
+        # line-with-shaded-background like the forecast figures), NOT a credible
+        # interval. Half-width is a small fraction of each column's data range.
+        band_df <- composite_dat %>%
+            group_by(variable) %>%
+            summarise(half = 0.014 * diff(range(c(q0p025, q0p975), na.rm = TRUE)),
+                      .groups = "drop") %>%
+            mutate(xmin = -half, xmax = half)
 
-        trigger_threshold_used <- scenario_objs[[keep_hz[1]]]$trigger_threshold
         caption_txt <- if (length(dropped_hz) > 0) {
             sprintf(
-                "Excludes %s: response trigger (%s+ cases) never reached, so no AA response scenario was modelled.",
-                paste(hz_label(dropped_hz), collapse = ", "), trigger_threshold_used
+                "Excludes %s: response trigger (>=174 cases/3wk for Kirotshe/Nyiragongo/Goma, >=63 cases/3wk\nfor other zones) never reached, so no AA response scenario was modelled.",
+                paste(hz_label(dropped_hz), collapse = ", ")
             )
         } else {
             NULL
         }
 
-        p_composite <- ggplot(composite_dat, aes(y = hz)) +
-            geom_vline(xintercept = 0, linetype = "dashed", colour = baseline_colour_all,
-                       linewidth = 0.8) +
-            geom_blank(data = x_pad, aes(x = x, y = hz)) +
-            geom_text(
-                data = label_df, aes(x = x, y = y, label = label),
-                inherit.aes = FALSE, hjust = 0, vjust = 1.6, size = 3.2,
-                colour = baseline_colour_all, fontface = "bold", family = "Helvetica"
+        # Legend key for the fitted response: a dashed line on a light shaded
+        # band, echoing the line+ribbon look of the forecast figures.
+        draw_key_fitted_ref <- function(data, params, size) {
+            grid::grobTree(
+                grid::rectGrob(gp = grid::gpar(fill = scales::alpha(data$colour, 0.18), col = NA)),
+                grid::segmentsGrob(0.05, 0.5, 0.95, 0.5,
+                    gp = grid::gpar(col = data$colour, lwd = 2, lty = "dashed"))
+            )
+        }
+
+        p_composite <- ggplot(composite_dat, aes(y = scenario)) +
+            # Thin decorative shaded band behind the dashed fitted-response line
+            geom_rect(
+                data = band_df, aes(xmin = xmin, xmax = xmax),
+                ymin = -Inf, ymax = Inf, inherit.aes = FALSE,
+                fill = baseline_colour_all, alpha = 0.18
             ) +
+            # Dashed baseline = fitted response; colour is mapped so it shows up
+            # as its own legend entry (line + shaded band, no CI - the fitted
+            # response is normalised to zero).
+            geom_vline(
+                data = data.frame(xintercept = 0, ref = "Fitted response"),
+                aes(xintercept = xintercept, colour = ref),
+                linetype = "dashed", linewidth = 0.8, key_glyph = draw_key_fitted_ref
+            ) +
+            geom_blank(data = x_pad, aes(x = x, y = scenario)) +
             geom_crossbar(
                 aes(x = q0p5, xmin = q0p25, xmax = q0p75, fill = scenario),
-                orientation = "y", width = 0.65, alpha = 0.8, colour = "grey30",
+                orientation = "y", width = 0.7, alpha = 0.85, colour = "grey30",
                 linewidth = 0.3, middle.linewidth = 0.6
             ) +
             geom_errorbar(
                 aes(xmin = q0p025, xmax = q0p975),
-                orientation = "y", width = 0.35, linewidth = 0.4, colour = "grey30"
+                orientation = "y", width = 0.3, linewidth = 0.4, colour = "grey30"
             ) +
             geom_text(
                 aes(x = label_x, label = num_label, hjust = label_hjust),
-                size = 2.6, family = "Helvetica"
+                size = 2.3, family = "Helvetica", colour = "black"
             ) +
+            # Rows = one health zone each; columns = Cases | Deaths. Each panel
+            # holds the three scenario box-and-whiskers, coloured by scenario
+            # (legend below), with the dashed line marking the fitted response.
             facet_grid(
-                scenario ~ variable,
-                labeller = labeller(scenario = scenario_facet_labels, variable = variable_facet_labels),
-                scales = "free_x"
+                hz ~ variable,
+                labeller = labeller(hz = as_labeller(hz_label), variable = variable_facet_labels),
+                scales = "free_x", switch = "y"
             ) +
-            scale_y_discrete(labels = hz_label) +
-            scale_fill_manual(values = scenario_colours_all, guide = "none") +
+            scale_y_discrete(limits = rev) +
+            scale_fill_manual(values = scenario_colours_all, labels = scenario_facet_labels,
+                              name = "Scenario") +
+            scale_colour_manual(name = NULL, values = c("Fitted response" = baseline_colour_all)) +
             labs(
                 x = "Excess cumulative count (vs fitted response)",
                 y = NULL,
@@ -694,19 +730,25 @@ if (length(scenario_rds_files) == 0) {
                 panel.background = element_rect(fill = "white", colour = "grey70"),
                 panel.border     = element_rect(fill = NA, colour = "grey70", linewidth = 0.5),
                 plot.background  = element_rect(fill = "white", colour = NA),
-                strip.text       = element_text(face = "bold", size = 11),
+                strip.text        = element_text(face = "bold", size = 11, colour = "black"),
+                strip.text.y.left = element_text(angle = 0),
+                axis.text        = element_text(colour = "black"),
+                axis.title       = element_text(colour = "black"),
+                axis.text.y      = element_blank(),
                 axis.ticks.x     = element_line(colour = "grey40"),
                 axis.ticks.y     = element_blank(),
                 plot.title       = element_text(face = "bold", size = 15),
                 plot.subtitle    = element_text(size = 10, colour = "grey40"),
                 plot.caption     = element_text(size = 8.5, colour = "grey40", hjust = 0),
-                panel.spacing    = unit(1, "lines")
+                legend.position  = "bottom",
+                panel.spacing.x  = unit(1, "lines"),
+                panel.spacing.y  = unit(0.35, "lines")
             )
 
         ggsave(file.path(fig_dir, "scenario_excess_all_hz.png"),
-            plot = p_composite, width = 12, height = 10, dpi = 300)
+            plot = p_composite, width = 11, height = 8.5, dpi = 300)
         ggsave(file.path(fig_dir, "scenario_excess_all_hz.pdf"),
-            plot = p_composite, width = 12, height = 10)
+            plot = p_composite, width = 11, height = 8.5)
 
         cat("\nComposite figure saved to:\n")
         cat("  ", file.path(fig_dir, "scenario_excess_all_hz.png"), "\n")
@@ -764,6 +806,20 @@ intervention_labels <- c(
 )
 intervention_order <- names(intervention_defs)
 
+# Per-lever colours - kept in sync with 01_04_Plot_model_fits_and_interventions.R
+# and 05_Shapley_analysis.R (ORC = gold, Latrines = coral after the swap). No
+# Latrines lever appears here, so that entry is simply unused; the six that do
+# appear map by name onto the model-fits / Shapley-forest palette.
+intervention_colours <- c(
+    "CTC"          = "#00BFC4",
+    "ORC"          = "#FFD700",
+    "CATI"         = "#7B68EE",
+    "Hygiene"      = "#FF69B4",
+    "Chlorination" = "#32CD32",
+    "Latrines"     = "#f86d6d",
+    "Vaccination"  = "#FF8C00"
+)
+
 # Fully zeroed intervention parameter set - the "no_interventions" baseline
 # used as the reference point for every add-one-in scenario
 zero_intervention_pars <- function(base_pars) {
@@ -786,10 +842,19 @@ zero_intervention_pars <- function(base_pars) {
 compute_intervention_contributions_hz <- function(hz_name, n_draws = 60, burnin = 0.25,
                                                    seed = 21, verbose = TRUE, force = FALSE) {
     out_path <- file.path(rds_dir, sprintf("%s_intervention_contributions.rds", hz_name))
-    if (file.exists(out_path) && !force) {
+    fit_path <- file.path(rds_dir, sprintf("%s_fit.rds", hz_name))
+    # A cache older than the fit it was built from is stale (e.g. after a
+    # refit) and must not be served - it would silently keep reporting
+    # pre-refit numbers (this is exactly what caused vaccination to show 0%
+    # here after the vax1_start/vax1_end/vax1_total_doses fitting bug was
+    # fixed and the model refit, until this check was added).
+    cache_stale <- file.exists(out_path) && file.exists(fit_path) &&
+        file.info(fit_path)$mtime > file.info(out_path)$mtime
+    if (file.exists(out_path) && !force && !cache_stale) {
         if (verbose) cat("Using cached contributions for", hz_name, "\n")
         return(readRDS(out_path))
     }
+    if (cache_stale && verbose) cat("Cached contributions for", hz_name, "are older than its fit - recomputing.\n")
 
     if (verbose) cat("\n--- Intervention contributions:", hz_name, "---\n")
 
@@ -976,10 +1041,7 @@ if (length(contribution_objs) == 0) {
 
         caption_txt <- paste(
             "Excludes Latrines (used in 1/12 zones) and 2nd vaccine dose (used in 0/12 zones).",
-            "Contribution = (add-one-in scenario) vs (no interventions), as % of (no interventions vs fitted response).\n",
-            "KNOWN ISSUE: Vaccination currently shows 0% for every zone due to a bug in how vax1_start/vax1_end/vax1_total_doses",
-            "were computed at the fitting stage (fixed in 01_02_fitting_all_HZs.R but not yet reflected in the saved fits) -\n",
-            "re-run the fit for the 7 affected zones before trusting this panel."
+            "Contribution = (add-one-in scenario) vs (no interventions), as % of (no interventions vs fitted response)."
         )
         if (n_clipped > 0) {
             caption_txt <- paste0(
@@ -1009,7 +1071,7 @@ if (length(contribution_objs) == 0) {
             ) +
             facet_wrap(~intervention, ncol = 2) +
             scale_y_discrete(labels = hz_label) +
-            scale_fill_brewer(palette = "Set2", guide = "none") +
+            scale_fill_manual(values = intervention_colours, guide = "none") +
             labs(
                 x = "Cases/deaths averted by this intervention alone, as % of total averted by the full historical response",
                 y = NULL,

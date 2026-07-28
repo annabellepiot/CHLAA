@@ -24,11 +24,11 @@ fig_dir <- file.path(base_dir, "figures")
 # Bright, high-contrast colours – each maximally distinguishable
 intervention_colours <- c(
   "CTC"           = "#00BFC4",
-  "ORC"           = "#f86d6d",
+  "ORC"           = "#FFD700",
   "CATI"          = "#7B68EE",
   "Hygiene"       = "#FF69B4",
   "Chlorination"  = "#32CD32",
-  "Latrines"      = "#FFD700",
+  "Latrines"      = "#f86d6d",
   "Vaccination"   = "#FF8C00"
 )
 

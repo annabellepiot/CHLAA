@@ -1,3 +1,3 @@
 "scenario","total_cases","total_deaths","cases_averted","deaths_averted","peak_incidence","time_peak","time_to_control","hz"
-"fitted_response",1860.5,178.64,0,0,95.32,389.34,14,"ngiri_ngiri"
-"no_interventions",4077.1,571.82,-2216.6,-393.18,123.6,320.32,21,"ngiri_ngiri"
+"fitted_response",1771.32,170.28,0,0,100.92,392.98,110.25,"ngiri_ngiri"
+"no_interventions",5438.64,771.14,-3667.32,-600.86,157.3,306.32,7,"ngiri_ngiri"

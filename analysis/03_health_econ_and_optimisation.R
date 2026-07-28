@@ -80,9 +80,17 @@ ggsave(
 
 horizon <- max(observed$time) + 182
 scenario_time <- seq(7, horizon, by = 7)
-trigger_candidates <- observed$time[observed$cases >= 50]
+# Kirotshe uses the higher 174-case (3-week rolling total) trigger threshold -
+# see 02_02_scenario_analysis_all_HZs.R. stats::filter(sides=1) is namespace-
+# qualified because library(dplyr) masks filter() in this file; it makes
+# each element the sum of itself and the two preceding weeks (a trailing
+# 3-week total, NA for the first two weeks), so trigger_time lands on the
+# 3rd (most recent) week of the first qualifying window.
+trigger_threshold <- 174
+roll3_cases <- as.numeric(stats::filter(observed$cases, rep(1, 3), method = "convolution", sides = 1))
+trigger_candidates <- observed$time[!is.na(roll3_cases) & roll3_cases >= trigger_threshold]
 if (length(trigger_candidates) == 0) {
-  warning("No week with >= 50 cases found; defaulting trigger_time to first observation time")
+  warning("No 3-week window with >= ", trigger_threshold, " cases found; defaulting trigger_time to first observation time")
   trigger_time <- min(observed$time)
 } else {
   trigger_time <- min(trigger_candidates)

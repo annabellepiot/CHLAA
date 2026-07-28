@@ -40,12 +40,23 @@
 #
 # =========================================================================
 
-source("00_setup.R") #/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/00_setup.R
-
 suppressMessages({
+    library(chlaa)
     library(ggplot2)
     library(dplyr)
 })
+
+FIG_DIR <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures"
+RDS_DIR <- file.path(FIG_DIR, ".rds files")
+TAB_DIR <- file.path(FIG_DIR, "tables")
+
+load_fit_obj <- function(hz) {
+    p <- file.path(RDS_DIR, sprintf("%s_fit.rds", hz))
+    if (!file.exists(p)) stop("Fit not found: ", p)
+    readRDS(p)
+}
+
+verdict <- function(pass, msg) cat(if (pass) "PASS   " else "CONCERN", "| ", msg, "\n")
 
 dir.create(RDS_DIR, showWarnings = FALSE, recursive = TRUE)
 dir.create(TAB_DIR, showWarnings = FALSE, recursive = TRUE)
@@ -67,6 +78,30 @@ k <- length(INTS)
 intervention_labels <- c(
     CTC = "CTC", ORC = "ORC", CATI = "CATI", Hygiene = "Hygiene",
     Chlorination = "Chlorination", Vax1 = "Vaccination"
+)
+
+# Intervention colour palette - kept in sync with the legend in
+# 01_04_Plot_model_fits_and_interventions.R so every figure in the project uses
+# one consistent colour per lever. (There is no Latrines lever in the Shapley
+# decomposition, so that palette entry is simply unused here.)
+intervention_colours <- c(
+    "CTC"          = "#00BFC4",
+    "ORC"          = "#FFD700",
+    "CATI"         = "#7B68EE",
+    "Hygiene"      = "#FF69B4",
+    "Chlorination" = "#32CD32",
+    "Latrines"     = "#f86d6d",
+    "Vaccination"  = "#FF8C00"
+)
+
+# Softer palette used only for the stacked-bar figures (per-lever fill).
+stacked_colours <- c(
+    "CTC"          = "#A6CEE3",
+    "ORC"          = "#FFFF99",
+    "CATI"         = "#CAB2D6",
+    "Hygiene"      = "#FB9A99",
+    "Chlorination" = "#B2DF8A",
+    "Vaccination"  = "#FDBF6F"
 )
 
 # Display-friendly health zone names (e.g. "ngiri_ngiri" -> "Ngiri Ngiri").
@@ -132,10 +167,19 @@ compute_shapley_hz <- function(hz_name, n_draws = N_DRAWS, n_part = N_PART, burn
                                 seed = SEED, horizon_extra = HORIZON_EXTRA, dt = DT,
                                 force = FALSE, verbose = TRUE) {
     out_path <- file.path(RDS_DIR, sprintf("%s_shapley.rds", hz_name))
-    if (file.exists(out_path) && !force) {
+    fit_path <- file.path(RDS_DIR, sprintf("%s_fit.rds", hz_name))
+    # A cache older than the fit it was built from is stale (e.g. after a
+    # refit) and must not be served - see the identical fix in
+    # compute_intervention_contributions_hz() in 02_02_scenario_analysis_all_HZs.R,
+    # which is exactly what caused vaccination to silently show 0% there
+    # after a refit until this check was added.
+    cache_stale <- file.exists(out_path) && file.exists(fit_path) &&
+        file.info(fit_path)$mtime > file.info(out_path)$mtime
+    if (file.exists(out_path) && !force && !cache_stale) {
         if (verbose) cat("Using cached Shapley results for", hz_name, "\n")
         return(readRDS(out_path))
     }
+    if (cache_stale && verbose) cat("Cached Shapley results for", hz_name, "are older than its fit - recomputing.\n")
 
     if (verbose) cat("\n--- Shapley decomposition:", hz_name, "---\n")
 
@@ -427,12 +471,9 @@ if (length(shapley_objs) == 0) {
     shap_dat <- shap_dat %>% mutate(hz = factor(hz, levels = hz_rank_all))
 
     caption_txt_shapley <- paste(
-        "Shapley decomposition: exact partition of the burden averted by the full historical response",
+        "Shapley decomposition: exact partition of the burden averted by the full historical response\n",
         "(all 6 levers at fitted timing/effects) vs. no response, using common random numbers\n",
-        "across all 64 lever on/off combinations per posterior draw. Shares sum to exactly 100% for every draw.\n",
-        "KNOWN ISSUE: Vaccination currently shows ~0% for every zone due to a bug in how vax1_start/vax1_end/vax1_total_doses were computed at the fitting stage\n",
-        "(fixed in 01_02_fitting_all_HZs.R but not yet reflected in the saved fits) -",
-        "re-run the fit for the 7 affected zones before trusting this lever."
+        "across all 64 lever on/off combinations per posterior draw. Shares sum to exactly 100% for every draw."
     )
 
     ## ---- Forest-plot figure (uncertainty, one facet per intervention) ----
@@ -499,7 +540,7 @@ if (length(shapley_objs) == 0) {
             ) +
             facet_wrap(~intervention, ncol = 2) +
             scale_y_discrete(labels = hz_label) +
-            scale_fill_brewer(palette = "Set2", guide = "none") +
+            scale_fill_manual(values = intervention_colours, guide = "none") +
             labs(
                 x = "Shapley share of total averted burden (%)",
                 y = NULL,
@@ -517,7 +558,9 @@ if (length(shapley_objs) == 0) {
                 panel.background = element_rect(fill = "white", colour = "grey70"),
                 panel.border     = element_rect(fill = NA, colour = "grey70", linewidth = 0.5),
                 plot.background  = element_rect(fill = "white", colour = NA),
-                strip.text       = element_text(face = "bold", size = 11),
+                strip.text       = element_text(face = "bold", size = 11, colour = "black"),
+                axis.text        = element_text(colour = "black"),
+                axis.title       = element_text(colour = "black"),
                 axis.ticks.x     = element_line(colour = "grey40"),
                 axis.ticks.y     = element_blank(),
                 plot.title       = element_text(face = "bold", size = 15),
@@ -543,7 +586,7 @@ if (length(shapley_objs) == 0) {
             geom_hline(yintercept = 100, linetype = "dashed", colour = "grey40", linewidth = 0.5) +
             coord_flip() +
             scale_x_discrete(labels = hz_label) +
-            scale_fill_brewer(palette = "Set2", name = "Intervention") +
+            scale_fill_manual(values = stacked_colours, name = "Intervention") +
             labs(
                 x = NULL, y = "Median Shapley share of total averted burden (%)",
                 title = plot_title,
@@ -556,30 +599,35 @@ if (length(shapley_objs) == 0) {
                 panel.background = element_rect(fill = "white", colour = "grey70"),
                 panel.border     = element_rect(fill = NA, colour = "grey70", linewidth = 0.5),
                 plot.background  = element_rect(fill = "white", colour = NA),
+                axis.text        = element_text(colour = "black"),
+                axis.title       = element_text(colour = "black"),
                 axis.ticks.x     = element_line(colour = "grey40"),
                 axis.ticks.y     = element_blank(),
                 plot.title       = element_text(face = "bold", size = 15),
                 plot.subtitle    = element_text(size = 9.5, colour = "grey40"),
                 plot.caption     = element_text(size = 7.5, colour = "grey40", hjust = 0),
-                legend.position  = "bottom"
+                legend.position  = "right"
             )
     }
 
-    p_forest_cases <- build_shapley_forest_plot("cases", "Shapley contribution of individual interventions - Cases")
+    p_forest_cases <- build_shapley_forest_plot("cases", "Shapley contribution of individual interventions - Cases", xlim_clip = c(-30, 100))
     ggsave(file.path(FIG_DIR, "shapley_forest_cases.png"), p_forest_cases, width = 12, height = 10, dpi = 300)
     ggsave(file.path(FIG_DIR, "shapley_forest_cases.pdf"), p_forest_cases, width = 12, height = 10)
 
-    p_forest_deaths <- build_shapley_forest_plot("deaths", "Shapley contribution of individual interventions - Deaths")
+    # Deaths CTC shares reach ~101% median (104% whisker) in Goma, so the right
+    # limit must clear the widest numeric label - a hard 100/110 clip truncates
+    # the "101% (98 to ...)" annotation. Left kept at -30 to match the cases plot.
+    p_forest_deaths <- build_shapley_forest_plot("deaths", "Shapley contribution of individual interventions - Deaths", xlim_clip = c(-30, 130))
     ggsave(file.path(FIG_DIR, "shapley_forest_deaths.png"), p_forest_deaths, width = 12, height = 10, dpi = 300)
     ggsave(file.path(FIG_DIR, "shapley_forest_deaths.pdf"), p_forest_deaths, width = 12, height = 10)
 
     p_stacked_cases <- build_shapley_stacked_plot("cases", "Relative contribution (Shapley) by health zone - Cases")
-    ggsave(file.path(FIG_DIR, "shapley_stacked_cases.png"), p_stacked_cases, width = 12, height = 9, dpi = 300)
-    ggsave(file.path(FIG_DIR, "shapley_stacked_cases.pdf"), p_stacked_cases, width = 12, height = 9)
+    ggsave(file.path(FIG_DIR, "shapley_stacked_cases.png"), p_stacked_cases, width = 10, height = 7, dpi = 300)
+    ggsave(file.path(FIG_DIR, "shapley_stacked_cases.pdf"), p_stacked_cases, width = 10, height = 7)
 
     p_stacked_deaths <- build_shapley_stacked_plot("deaths", "Relative contribution (Shapley) by health zone - Deaths")
-    ggsave(file.path(FIG_DIR, "shapley_stacked_deaths.png"), p_stacked_deaths, width = 12, height = 9, dpi = 300)
-    ggsave(file.path(FIG_DIR, "shapley_stacked_deaths.pdf"), p_stacked_deaths, width = 12, height = 9)
+    ggsave(file.path(FIG_DIR, "shapley_stacked_deaths.png"), p_stacked_deaths, width = 10, height = 7, dpi = 300)
+    ggsave(file.path(FIG_DIR, "shapley_stacked_deaths.pdf"), p_stacked_deaths, width = 10, height = 7)
 
     cat("\nShapley figures saved to:\n")
     cat("  ", file.path(FIG_DIR, "shapley_forest_cases.png"), "\n")

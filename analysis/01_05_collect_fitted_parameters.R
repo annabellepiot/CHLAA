@@ -285,12 +285,15 @@ summ <- draws_all |>
   ungroup()
 
 # Shared theme
-theme_halfeye <- theme_bw(base_size = 12, base_family = "Helvetica") +
+theme_halfeye <- theme_bw(base_size = 14, base_family = "Helvetica") +
   theme(
     panel.grid.minor = element_blank(),
-    strip.text       = element_text(face = "bold", size = 10),
-    axis.text.y      = element_text(size = 9),
-    plot.title       = element_text(face = "bold")
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold", size = 13, colour = "black"),
+    axis.text        = element_text(colour = "black"),
+    axis.text.y      = element_text(size = 13, colour = "black"),
+    axis.title       = element_text(colour = "black"),
+    plot.title       = element_text(face = "bold", colour = "black")
   )
 
 # --- Standalone R0 plot ---
@@ -329,6 +332,22 @@ ggsave(file.path(fig_dir, "fitted_r0_density.png"),
   p_r0_density, width = 8, height = 7, dpi = 300)
 
 # --- 4-parameter comparison (2x2): linear pair + log pair via patchwork ---
+#
+# frac_neff and obs_size are built as SEPARATE single-parameter plots (rather
+# than one facet_wrap, as before) so obs_size can get its own x-axis limit -
+# ggh4x::facetted_pos_scales (the usual way to give one facet an independent
+# scale) is incompatible with stat_halfeye (see note above), so per-facet
+# scale control here means per-plot instead.
+label_above <- function(summ_dat) {
+  geom_label(
+    data = summ_dat,
+    aes(x = value, y = hz,
+        label = sprintf("%.3g [%.3g, %.3g]", value, .lower, .upper)),
+    nudge_y = 0.32, vjust = 0, size = 2.8, colour = "black", family = "Helvetica",
+    fill = "white", label.size = 0, label.padding = unit(0.08, "lines")
+  )
+}
+
 lin_params  <- c("frac_neff", "obs_size")
 draws_lin   <- draws_all |>
   filter(parameter %in% lin_params) |>
@@ -337,22 +356,39 @@ summ_lin    <- summ |>
   filter(parameter %in% lin_params) |>
   mutate(parameter = factor(parameter, levels = lin_params))
 
-p_lin <- ggplot(draws_lin, aes(x = value, y = hz)) +
+p_frac_neff <- ggplot(draws_lin |> filter(parameter == "frac_neff"), aes(x = value, y = hz)) +
   stat_halfeye(
-    .width = c(0.8, 0.95), fill = "#6baed6",
+    .width = 0.95, fill = "#6baed6",
     normalize = "panels", slab_alpha = 0.8,
-    point_size = 1.5, interval_size_range = c(0.6, 1.2)
+    point_size = 1.5, interval_size = 0.6
   ) +
-  geom_text(
-    data = summ_lin,
-    aes(x = Inf, y = hz,
-        label = sprintf("%.3g [%.3g, %.3g]", value, .lower, .upper)),
-    hjust = "inward", size = 2.0, colour = "grey30", family = "Helvetica"
-  ) +
-  facet_wrap(~ parameter, scales = "free_x", nrow = 1,
+  label_above(summ_lin |> filter(parameter == "frac_neff")) +
+  facet_wrap(~ parameter, scales = "free_x",
              labeller = labeller(parameter = param_labels)) +
-  labs(x = "Posterior value", y = NULL) +
-  theme_halfeye
+  scale_y_discrete(labels = hz_label) +
+  # Extra horizontal room so the value labels (centred over each median) are
+  # not clipped when a median sits near a panel edge.
+  scale_x_continuous(expand = expansion(mult = c(0.18, 0.08))) +
+  labs(x = NULL, y = NULL) +
+  theme_halfeye +
+  theme(panel.grid = element_blank())
+
+p_obs_size <- ggplot(draws_lin |> filter(parameter == "obs_size"), aes(x = value, y = hz)) +
+  stat_halfeye(
+    .width = 0.95, fill = "#6baed6",
+    normalize = "panels", slab_alpha = 0.8,
+    point_size = 1.5, interval_size = 0.6
+  ) +
+  label_above(summ_lin |> filter(parameter == "obs_size")) +
+  facet_wrap(~ parameter, scales = "free_x",
+             labeller = labeller(parameter = param_labels)) +
+  coord_cartesian(xlim = c(0, 15)) +
+  scale_y_discrete(labels = hz_label) +
+  labs(x = NULL, y = NULL) +
+  theme_halfeye +
+  # Second HZ y-axis is redundant with the left panel (same zone order) - hide it
+  theme(panel.grid = element_blank(),
+        axis.text.y = element_blank(), axis.ticks.y = element_blank())
 
 log_params  <- c("trans_prob", "E0")
 draws_log   <- draws_all |>
@@ -364,36 +400,33 @@ summ_log    <- summ |>
 
 p_log <- ggplot(draws_log, aes(x = value, y = hz)) +
   stat_halfeye(
-    .width = c(0.8, 0.95), fill = "#6baed6",
+    .width = 0.95, fill = "#6baed6",
     normalize = "panels", slab_alpha = 0.8,
-    point_size = 1.5, interval_size_range = c(0.6, 1.2)
+    point_size = 1.5, interval_size = 0.6
   ) +
-  geom_text(
-    data = summ_log,
-    aes(x = Inf, y = hz,
-        label = sprintf("%.3g [%.3g, %.3g]", value, .lower, .upper)),
-    hjust = "inward", size = 2.0, colour = "grey30", family = "Helvetica"
-  ) +
+  label_above(summ_log) +
   facet_wrap(~ parameter, scales = "free_x", nrow = 1,
              labeller = labeller(parameter = param_labels)) +
-  scale_x_log10() +
-  labs(x = "Posterior value (log scale)", y = NULL) +
-  theme_halfeye
+  scale_x_log10(expand = expansion(mult = c(0.12, 0.13))) +
+  scale_y_discrete(labels = hz_label) +
+  labs(x = NULL, y = NULL) +
+  theme_halfeye +
+  theme(panel.grid = element_blank())
 
-# Stack linear (top) and log (bottom) into a 2x2 grid
-p_dist <- (p_lin / p_log) +
+# Stack linear pair (top) and log pair (bottom) into a 2x2 grid
+p_dist <- ((p_frac_neff | p_obs_size) / p_log) +
   plot_annotation(
     title    = "Posterior parameter estimates by health zone",
-    subtitle = "Half-eye densities with median, 80% and 95% credible intervals",
+    subtitle = "Half-eye densities with median and 95% uncertainty intervals",
     theme    = theme(
       text          = element_text(family = "Helvetica"),
-      plot.title    = element_text(face = "bold", size = 14),
-      plot.subtitle = element_text(size = 11)
+      plot.title    = element_text(face = "bold", size = 16, colour = "black"),
+      plot.subtitle = element_text(size = 12.5, colour = "black")
     )
   )
 
 ggsave(file.path(fig_dir, "fitted_parameters_comparison.png"),
-  p_dist, width = 16, height = 12, dpi = 300)
+  p_dist, width = 15, height = 13, dpi = 300)
 
 # ---- 2. R0 estimates across HZs ----
 
