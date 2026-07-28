@@ -1,5 +1,0 @@
-"scenario","total_cases","total_deaths","cases_averted","deaths_averted","peak_incidence","time_peak","time_to_control","hz"
-"aa_response",3913.74,101.54,2274.78,560.64,96.24,165.76,NA,"kindu"
-"aa_response_plus_vaccine",3755.14,97.78,2433.38,564.4,87.96,168.14,NA,"kindu"
-"fitted_response",6188.52,662.18,0,0,193.68,93.94,NA,"kindu"
-"no_interventions",6756.76,988.98,-568.24,-326.8,217,111.02,NA,"kindu"

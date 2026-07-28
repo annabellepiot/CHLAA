@@ -1,3 +1,0 @@
-"scenario","infections","cases_symptomatic","deaths","doses","orc_treated","ctc_treated","infections_averted","cases_averted","deaths_averted","cost","dalys","cost_diff","dalys_averted","icer_cost_per_daly_averted","icer_cost_per_death_averted","mean_cost_vax","mean_cost_care","mean_cost_wash","nmb","inmb","hz"
-"fitted_response",31337.74,7755.34,903.24,0,119.22,431.82,0,0,0,311763.548175222,27125.1617190137,0,0,NA,NA,0,35737.8,276025.748175222,0,0,"nyiragongo"
-"no_interventions",40737.16,10108.86,1474.14,0,0,0,-9399.42,-2353.52,-570.9,0,44260.6472870137,-311763.548175222,-17135.485568,NA,NA,0,0,0,-25391464.8038248,-25391464.8038248,"nyiragongo"

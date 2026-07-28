@@ -1,5 +1,0 @@
-"scenario","total_cases","total_deaths","cases_averted","deaths_averted","peak_incidence","time_peak","time_to_control","hz"
-"aa_response",2317.44,108.94,13232.46,1752.42,98.14,71.26,448,"kirotshe"
-"aa_response_plus_vaccine",2154.02,102.94,13395.88,1758.42,97.36,70.84,399,"kirotshe"
-"fitted_response",15549.9,1861.36,0,0,389.86,417.34,NA,"kirotshe"
-"no_interventions",20499.28,2973.46,-4949.38,-1112.1,402.74,250.18,NA,"kirotshe"

@@ -1,5 +1,0 @@
-"scenario","total_cases","total_deaths","cases_averted","deaths_averted","peak_incidence","time_peak","time_to_control","hz"
-"aa_response",756.24,63.8,631.1,84.38,125.44,7,202.02,"kokolo"
-"aa_response_plus_vaccine",726.86,61.08,660.48,87.1,124.74,7,195.72,"kokolo"
-"fitted_response",1387.34,148.18,0,0,128.04,7,221.958333333333,"kokolo"
-"no_interventions",3344.42,496.84,-1957.08,-348.66,126.68,7,NA,"kokolo"
