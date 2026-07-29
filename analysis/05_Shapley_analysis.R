@@ -1,44 +1,44 @@
-# =========================================================================
-# Shapley decomposition of intervention contributions to averted burden
-# =========================================================================
+#=========================================================================
+#Shapley decomposition of intervention contributions to averted burden
+#=========================================================================
 #
-# For each health zone and each posterior draw, builds the fully-on fitted
-# parameter set (all six levers at their historically observed windows,
-# effects, capacities and vaccine schedule), simulates all 2^6 = 64 on/off
-# combinations under ONE shared seed (common random numbers), and computes
-# the averted burden V(S) = burden(none) - burden(S) for every combination.
-# The Shapley value for each lever is assembled from that lookup table
-# (no re-simulation per lever/subset pair, so there is no hidden
-# approximation). Contributions sum EXACTLY to the total averted burden
-# (the efficiency axiom, asserted below via verdict()); leave-one-out and
-# add-one-in are reported as the two bounds Shapley averages over, plus a
-# redundancy/synergy diagnostic (sum(add-one-in) vs total vs
-# sum(leave-one-out)).
+#For each health zone and each posterior draw, builds the fully-on fitted
+#parameter set (all six levers at their historically observed windows,
+#effects, capacities and vaccine schedule), simulates all 2^6 = 64 on/off
+#combinations under ONE shared seed (common random numbers), and computes
+#the averted burden V(S) = burden(none) - burden(S) for every combination.
+#The Shapley value for each lever is assembled from that lookup table
+#(no re-simulation per lever/subset pair, so there is no hidden
+#approximation). Contributions sum EXACTLY to the total averted burden
+#(the efficiency axiom, asserted below via verdict()); leave-one-out and
+#add-one-in are reported as the two bounds Shapley averages over, plus a
+#redundancy/synergy diagnostic (sum(add-one-in) vs total vs
+#sum(leave-one-out)).
 #
-# The empty set is "no response"; the full set is the real deployed
-# programme (inherited unmodified from the fit) - so this partitions the
-# burden the actual programme averted, at its ACTUAL observed timing (not
-# a re-optimised schedule). A lever not deployed in a given zone (e.g.
-# vaccination where no campaign ran) correctly receives ~0.
+#The empty set is "no response"; the full set is the real deployed
+#programme (inherited unmodified from the fit) - so this partitions the
+#burden the actual programme averted, at its ACTUAL observed timing (not
+#a re-optimised schedule). A lever not deployed in a given zone (e.g.
+#vaccination where no campaign ran) correctly receives ~0.
 #
-# Both outcomes (cases, deaths) are derived from the SAME 64 x N_DRAWS
-# simulations per zone: chlaa_simulate() already returns cum_symptoms and
-# cum_deaths together in one call, so reading off both columns costs
-# nothing extra and guarantees identical CRN trajectories underlie both
-# decompositions.
+#Both outcomes (cases, deaths) are derived from the SAME 64 x N_DRAWS
+#simulations per zone: chlaa_simulate() already returns cum_symptoms and
+#cum_deaths together in one call, so reading off both columns costs
+#nothing extra and guarantees identical CRN trajectories underlie both
+#decompositions.
 #
-# Horizon (HORIZON_EXTRA = 182, weekly grid) and dt (0.25) match
-# 02_02_scenario_analysis_all_HZs.R so this analysis is on the same
-# footing as the scenario / intervention-contribution figures. Negative
-# Shapley contributions are legitimate (not clipped) - cholera control
-# levers are frequently substitutes, and a lever can look harmful in
-# combination while helping alone, or vice versa.
+#Horizon (HORIZON_EXTRA = 182, weekly grid) and dt (0.25) match
+#02_02_scenario_analysis_all_HZs.R so this analysis is on the same
+#footing as the scenario / intervention-contribution figures. Negative
+#Shapley contributions are legitimate (not clipped) - cholera control
+#levers are frequently substitutes, and a lever can look harmful in
+#combination while helping alone, or vice versa.
 #
-# Designed for PBS array job submission (one HZ per job, compute + cache
-# only) or sequential interactive use (also rebuilds the aggregate
-# figures at the end) - mirrors the pattern of 02_02_scenario_analysis_all_HZs.R.
+#Designed for PBS array job submission (one HZ per job, compute + cache
+#only) or sequential interactive use (also rebuilds the aggregate
+#figures at the end) - mirrors the pattern of 02_02_scenario_analysis_all_HZs.R.
 #
-# =========================================================================
+#=========================================================================
 
 suppressMessages({
     library(chlaa)
@@ -62,13 +62,13 @@ dir.create(RDS_DIR, showWarnings = FALSE, recursive = TRUE)
 dir.create(TAB_DIR, showWarnings = FALSE, recursive = TRUE)
 dir.create(FIG_DIR, showWarnings = FALSE, recursive = TRUE)
 
-## ---- Fixed method settings -----------------------------------------
-N_DRAWS <- 60 # posterior draws -> parameter-uncertainty CrIs
-N_PART <- 30 # particles per simulation (averaged within a draw)
+##---- Fixed method settings -----------------------------------------
+N_DRAWS <- 60 #posterior draws -> parameter-uncertainty CrIs
+N_PART <- 30 #particles per simulation (averaged within a draw)
 BURNIN <- 0.25
-HORIZON_EXTRA <- 182 # days beyond last observed week (matches 02_02)
-DT <- 0.25 # matches 02_02_scenario_analysis_all_HZs.R
-N_THREADS <- 4 # matches the ncpus=4 PBS resource request
+HORIZON_EXTRA <- 182 #days beyond last observed week (matches 02_02)
+DT <- 0.25 #matches 02_02_scenario_analysis_all_HZs.R
+N_THREADS <- 4 #matches the ncpus=4 PBS resource request
 SEED <- 1
 OUTCOMES <- c("cases", "deaths")
 
@@ -80,10 +80,10 @@ intervention_labels <- c(
     Chlorination = "Chlorination", Vax1 = "Vaccination"
 )
 
-# Intervention colour palette - kept in sync with the legend in
-# 01_04_Plot_model_fits_and_interventions.R so every figure in the project uses
-# one consistent colour per lever. (There is no Latrines lever in the Shapley
-# decomposition, so that palette entry is simply unused here.)
+#Intervention colour palette - kept in sync with the legend in
+#01_04_Plot_model_fits_and_interventions.R so every figure in the project uses
+#one consistent colour per lever. (There is no Latrines lever in the Shapley
+#decomposition, so that palette entry is simply unused here.)
 intervention_colours <- c(
     "CTC"          = "#00BFC4",
     "ORC"          = "#FFD700",
@@ -94,7 +94,7 @@ intervention_colours <- c(
     "Vaccination"  = "#FF8C00"
 )
 
-# Softer palette used only for the stacked-bar figures (per-lever fill).
+#Softer palette used only for the stacked-bar figures (per-lever fill).
 stacked_colours <- c(
     "CTC"          = "#A6CEE3",
     "ORC"          = "#FFFF99",
@@ -104,16 +104,16 @@ stacked_colours <- c(
     "Vaccination"  = "#FDBF6F"
 )
 
-# Display-friendly health zone names (e.g. "ngiri_ngiri" -> "Ngiri Ngiri").
-# Same helper as in 02_02_scenario_analysis_all_HZs.R.
+#Display-friendly health zone names (e.g. "ngiri_ngiri" -> "Ngiri Ngiri").
+#Same helper as in 02_02_scenario_analysis_all_HZs.R.
 hz_label <- function(x) {
     x <- gsub("_", " ", x)
     gsub("(?<=^|\\s)([a-z])", "\\U\\1", x, perl = TRUE)
 }
 
-# For each lever, the parameter overrides that switch it OFF. Everything not
-# listed keeps its HISTORICALLY OBSERVED value carried in the fitted pars, so
-# the FULL set = the real deployed programme and the EMPTY set = no response.
+#For each lever, the parameter overrides that switch it OFF. Everything not
+#listed keeps its HISTORICALLY OBSERVED value carried in the fitted pars, so
+#the FULL set = the real deployed programme and the EMPTY set = no response.
 off_overrides <- list(
     CTC          = list(ctc_start = 0,   ctc_end = 0,   ctc_capacity = 0),
     ORC          = list(orc_start = 0,   orc_end = 0,   orc_capacity = 0),
@@ -126,11 +126,11 @@ off_overrides <- list(
                         n_vax1_schedule = 2L)
 )
 
-## ---- Helpers -------------------------------------------------------
+##---- Helpers -------------------------------------------------------
 
-# Build the parameter list for a subset S (a logical vector over INTS):
-# start from the fully-on fitted pars for this draw, then switch OFF every
-# lever NOT in S.
+#Build the parameter list for a subset S (a logical vector over INTS):
+#start from the fully-on fitted pars for this draw, then switch OFF every
+#lever NOT in S.
 make_subset_pars <- function(full_pars, S) {
     p <- full_pars
     for (j in which(!S)) p <- utils::modifyList(p, off_overrides[[INTS[j]]])
@@ -138,41 +138,41 @@ make_subset_pars <- function(full_pars, S) {
     p
 }
 
-# Burden at end of horizon for a config, averaged over CRN particles, for
-# BOTH outcomes at once (one chlaa_simulate() call).
+#Burden at end of horizon for a config, averaged over CRN particles, for
+#BOTH outcomes at once (one chlaa_simulate() call).
 burden_multi <- function(pars, tvec, seed) {
     s <- chlaa_simulate(
         pars = pars, time = tvec, n_particles = N_PART, dt = DT,
         seed = seed, n_threads = N_THREADS, deterministic = FALSE
-    ) # <-- CRN: same seed for all 64 subsets in a draw
+    ) #<-- CRN: same seed for all 64 subsets in a draw
     end <- s[s$time == max(s$time), ]
     c(cases = mean(end$cum_symptoms), deaths = mean(end$cum_deaths))
 }
 
-# Shapley weight for a subset of size s (excluding lever i), k levers total.
+#Shapley weight for a subset of size s (excluding lever i), k levers total.
 shap_w <- function(s, k) factorial(s) * factorial(k - s - 1) / factorial(k)
 
-# Quantiles reported: 2.5/25/50/75/97.5%, mirroring the box+whisker
-# convention used throughout this project's forecast figures.
+#Quantiles reported: 2.5/25/50/75/97.5%, mirroring the box+whisker
+#convention used throughout this project's forecast figures.
 q5 <- function(x) stats::quantile(x, c(.025, .25, .5, .75, .975), na.rm = TRUE)
 
-## ---- Enumerate all 2^k subsets once (as bitmasks) ------------------
+##---- Enumerate all 2^k subsets once (as bitmasks) ------------------
 masks <- 0:(2^k - 1)
-as_S <- function(m) as.logical(bitwAnd(m, 2^(0:(k - 1))) > 0) # length-k logical
+as_S <- function(m) as.logical(bitwAnd(m, 2^(0:(k - 1))) > 0) #length-k logical
 full_mask <- 2^k - 1
 
-## ---- Main per-zone computation (cached) -----------------------------
+##---- Main per-zone computation (cached) -----------------------------
 
 compute_shapley_hz <- function(hz_name, n_draws = N_DRAWS, n_part = N_PART, burnin = BURNIN,
                                 seed = SEED, horizon_extra = HORIZON_EXTRA, dt = DT,
                                 force = FALSE, verbose = TRUE) {
     out_path <- file.path(RDS_DIR, sprintf("%s_shapley.rds", hz_name))
     fit_path <- file.path(RDS_DIR, sprintf("%s_fit.rds", hz_name))
-    # A cache older than the fit it was built from is stale (e.g. after a
-    # refit) and must not be served - see the identical fix in
-    # compute_intervention_contributions_hz() in 02_02_scenario_analysis_all_HZs.R,
-    # which is exactly what caused vaccination to silently show 0% there
-    # after a refit until this check was added.
+    #A cache older than the fit it was built from is stale (e.g. after a
+    #refit) and must not be served - see the identical fix in
+    #compute_intervention_contributions_hz() in 02_02_scenario_analysis_all_HZs.R,
+    #which is exactly what caused vaccination to silently show 0% there
+    #after a refit until this check was added.
     cache_stale <- file.exists(out_path) && file.exists(fit_path) &&
         file.info(fit_path)$mtime > file.info(out_path)$mtime
     if (file.exists(out_path) && !force && !cache_stale) {
@@ -187,12 +187,12 @@ compute_shapley_hz <- function(hz_name, n_draws = N_DRAWS, n_part = N_PART, burn
     fit <- fo$fit
     tvec <- seq(7, max(fo$observed$time) + horizon_extra, by = 7)
 
-    # Per-chain burn-in then combine (NOT chlaa_fit_draws() +
-    # chlaa_fit_select_iterations(), which stacks all chains BEFORE burn-in
-    # and so only discards the first `burnin` fraction of the concatenated
-    # stack - i.e. effectively burns in just the first chain and keeps 100%
-    # of every later one). This is the same internal helper
-    # chlaa_forecast_scenarios_from_fit() itself uses.
+    #Per-chain burn-in then combine (NOT chlaa_fit_draws() +
+    #chlaa_fit_select_iterations(), which stacks all chains BEFORE burn-in
+    #and so only discards the first `burnin` fraction of the concatenated
+    #stack - i.e. effectively burns in just the first chain and keeps 100%
+    #of every later one). This is the same internal helper
+    #chlaa_forecast_scenarios_from_fit() itself uses.
     dr <- chlaa:::.chlaa_fit_selected_draws_matrix(fit, burnin = burnin, thin = 1)
     set.seed(seed)
     draw_idx <- sample.int(nrow(dr), n_draws, replace = n_draws > nrow(dr))
@@ -205,23 +205,23 @@ compute_shapley_hz <- function(hz_name, n_draws = N_DRAWS, n_part = N_PART, burn
     tot_mat <- matrix(NA_real_, n_draws, length(OUTCOMES), dimnames = list(NULL, OUTCOMES))
 
     for (d in seq_len(n_draws)) {
-        seed_d <- 10000 + d # CRN seed shared by all 64 configs this draw
+        seed_d <- 10000 + d #CRN seed shared by all 64 configs this draw
         full_pars <- chlaa:::.chlaa_update_pars_from_theta(dr[draw_idx[d], ], fo$pars_warm, fit)
 
-        # 1) burden for every subset (both outcomes at once)
+        #1) burden for every subset (both outcomes at once)
         b <- matrix(NA_real_, length(masks), length(OUTCOMES), dimnames = list(as.character(masks), OUTCOMES))
         for (m in masks) {
             b[as.character(m), ] <- burden_multi(make_subset_pars(full_pars, as_S(m)), tvec, seed_d)
         }
-        # V(S) = burden(empty) - burden(S) (averted), per outcome column
+        #V(S) = burden(empty) - burden(S) (averted), per outcome column
         V <- b
         for (o in OUTCOMES) V[, o] <- b["0", o] - b[, o]
         tot_mat[d, ] <- V[as.character(full_mask), ]
 
-        # 2) assemble Shapley + the two bounds from the V-lookup (no extra sims)
+        #2) assemble Shapley + the two bounds from the V-lookup (no extra sims)
         for (i in seq_len(k)) {
             bit_i <- 2^(i - 1)
-            others <- setdiff(masks, masks[bitwAnd(masks, bit_i) > 0]) # subsets WITHOUT i
+            others <- setdiff(masks, masks[bitwAnd(masks, bit_i) > 0]) #subsets WITHOUT i
             for (o in OUTCOMES) {
                 phi <- 0
                 for (m in others) {
@@ -229,25 +229,25 @@ compute_shapley_hz <- function(hz_name, n_draws = N_DRAWS, n_part = N_PART, burn
                     phi <- phi + shap_w(s, k) * (V[as.character(m + bit_i), o] - V[as.character(m), o])
                 }
                 phi_arr[d, i, o] <- phi
-                aoi_arr[d, i, o] <- V[as.character(bit_i), o] # add-one-in (marginal first)
-                loo_arr[d, i, o] <- V[as.character(full_mask), o] - V[as.character(full_mask - bit_i), o] # leave-one-out (marginal last)
+                aoi_arr[d, i, o] <- V[as.character(bit_i), o] #add-one-in (marginal first)
+                loo_arr[d, i, o] <- V[as.character(full_mask), o] - V[as.character(full_mask - bit_i), o] #leave-one-out (marginal last)
             }
         }
     }
 
-    ## ---- Summarise per outcome ---------------------------------------
+    ##---- Summarise per outcome ---------------------------------------
     summarise_outcome <- function(o) {
         phi_mat <- phi_arr[, , o]
         loo_mat <- loo_arr[, , o]
         aoi_mat <- aoi_arr[, , o]
         tot_vec <- tot_mat[, o]
 
-        # Per-draw shares: sum_i phi_mat[d, i] == tot_vec[d] EXACTLY for every
-        # draw d (the efficiency axiom holds per draw), so dividing row-wise
-        # before summarising gives shares that sum to exactly 100% for every
-        # draw, and a properly propagated CI on the share itself - unlike
-        # normalising by the sum of independently-computed per-lever medians
-        # (which are not additive).
+        #Per-draw shares: sum_i phi_mat[d, i] == tot_vec[d] EXACTLY for every
+        #draw d (the efficiency axiom holds per draw), so dividing row-wise
+        #before summarising gives shares that sum to exactly 100% for every
+        #draw, and a properly propagated CI on the share itself - unlike
+        #normalising by the sum of independently-computed per-lever medians
+        #(which are not additive).
         share_mat <- 100 * sweep(phi_mat, 1, tot_vec, "/")
 
         phi_q <- t(apply(phi_mat, 2, q5))
@@ -314,12 +314,12 @@ compute_shapley_hz <- function(hz_name, n_draws = N_DRAWS, n_part = N_PART, burn
     result
 }
 
-## ---- Main Execution --------------------------------------------------
+##---- Main Execution --------------------------------------------------
 
 args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) > 0) {
-    # Array job mode: run single HZ specified by argument
+    #Array job mode: run single HZ specified by argument
     hz_to_run <- args[1]
 
     cat("\n", rep("=", 60), "\n", sep = "")
@@ -349,8 +349,8 @@ if (length(args) > 0) {
         quit(status = 1)
     }
 } else {
-    # Interactive mode: run all HZs sequentially (cache-backed, so already
-    # computed zones return instantly)
+    #Interactive mode: run all HZs sequentially (cache-backed, so already
+    #computed zones return instantly)
     cat("No HZ specified. Running in sequential mode for all HZs.\n")
     cat("For production use, submit as array job with HZ name as argument.\n\n")
 
@@ -394,14 +394,14 @@ if (length(args) > 0) {
     }
 }
 
-## =========================================================================
-## Aggregate Shapley figures across all health zones
-## =========================================================================
+##=========================================================================
+##Aggregate Shapley figures across all health zones
+##=========================================================================
 #
-# Runs every time this script is invoked (array task or interactive), same
-# as the composite/contribution figures in 02_02_scenario_analysis_all_HZs.R
-# - cheap once all zones are cached, and the last array task to finish
-# leaves complete figures behind.
+#Runs every time this script is invoked (array task or interactive), same
+#as the composite/contribution figures in 02_02_scenario_analysis_all_HZs.R
+#- cheap once all zones are cached, and the last array task to finish
+#leaves complete figures behind.
 
 cat("\n", rep("=", 60), "\n", sep = "")
 cat("Building Shapley relative-contribution figures\n")
@@ -431,19 +431,19 @@ if (length(shapley_objs) == 0) {
             intervention = factor(intervention_labels[intervention], levels = unname(intervention_labels[INTS])),
             variable = factor(variable, levels = OUTCOMES),
             num_label = paste0(round(share_pct_q0p5), "% (", round(share_pct_q0p025), " to ", round(share_pct_q0p975), ")"),
-            # Anchored at the 25/75% box edge (not the 95% whisker end), same
-            # reasoning as 02_02's intervention-contribution figure: a few
-            # small-population HZs have wide enough 95% intervals to overflow
-            # any sensible shared x-axis.
+            #Anchored at the 25/75% box edge (not the 95% whisker end), same
+            #reasoning as 02_02's intervention-contribution figure: a few
+            #small-population HZs have wide enough 95% intervals to overflow
+            #any sensible shared x-axis.
             label_x = ifelse(share_pct_q0p5 >= 0, share_pct_q0p75, share_pct_q0p25),
             label_hjust = ifelse(share_pct_q0p5 >= 0, -0.08, 1.08)
         )
 
     write.csv(shap_dat, file.path(TAB_DIR, "shapley_all_hz.csv"), row.names = FALSE)
 
-    # HZ ordering: reuse the same "no-intervention excess" magnitude ranking
-    # as the composite scenario / intervention-contribution figures, so all
-    # of this project's figures are directly comparable panel-for-panel.
+    #HZ ordering: reuse the same "no-intervention excess" magnitude ranking
+    #as the composite scenario / intervention-contribution figures, so all
+    #of this project's figures are directly comparable panel-for-panel.
     hz_rank_all <- tryCatch(
         {
             scenario_rds_files4 <- list.files(RDS_DIR, pattern = "_scenarios\\.rds$", full.names = TRUE)
@@ -476,7 +476,7 @@ if (length(shapley_objs) == 0) {
         "across all 64 lever on/off combinations per posterior draw. Shares sum to exactly 100% for every draw."
     )
 
-    ## ---- Forest-plot figure (uncertainty, one facet per intervention) ----
+    ##---- Forest-plot figure (uncertainty, one facet per intervention) ----
 
     build_shapley_forest_plot <- function(var_name, plot_title, xlim_clip = NULL) {
         dat <- shap_dat %>% filter(variable == var_name)
@@ -570,7 +570,7 @@ if (length(shapley_objs) == 0) {
             )
     }
 
-    ## ---- Stacked-bar figure (medians only, visualises the 100% partition) ----
+    ##---- Stacked-bar figure (medians only, visualises the 100% partition) ----
 
     build_shapley_stacked_plot <- function(var_name, plot_title) {
         dat <- shap_dat %>% filter(variable == var_name)
@@ -614,9 +614,9 @@ if (length(shapley_objs) == 0) {
     ggsave(file.path(FIG_DIR, "shapley_forest_cases.png"), p_forest_cases, width = 12, height = 10, dpi = 300)
     ggsave(file.path(FIG_DIR, "shapley_forest_cases.pdf"), p_forest_cases, width = 12, height = 10)
 
-    # Deaths CTC shares reach ~101% median (104% whisker) in Goma, so the right
-    # limit must clear the widest numeric label - a hard 100/110 clip truncates
-    # the "101% (98 to ...)" annotation. Left kept at -30 to match the cases plot.
+    #Deaths CTC shares reach ~101% median (104% whisker) in Goma, so the right
+    #limit must clear the widest numeric label - a hard 100/110 clip truncates
+    #the "101% (98 to ...)" annotation. Left kept at -30 to match the cases plot.
     p_forest_deaths <- build_shapley_forest_plot("deaths", "Shapley contribution of individual interventions - Deaths", xlim_clip = c(-30, 130))
     ggsave(file.path(FIG_DIR, "shapley_forest_deaths.png"), p_forest_deaths, width = 12, height = 10, dpi = 300)
     ggsave(file.path(FIG_DIR, "shapley_forest_deaths.pdf"), p_forest_deaths, width = 12, height = 10)

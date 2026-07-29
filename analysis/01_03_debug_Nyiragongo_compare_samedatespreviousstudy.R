@@ -1,25 +1,25 @@
-# =============================================================================
-# Nyiragongo Production Fit — comparison with previous study
-# =============================================================================
+#=============================================================================
+#Nyiragongo Production Fit - comparison with previous study
+#=============================================================================
 #
-# Fits the chlaa cholera model to Nyiragongo health zone data using pMCMC,
-# matching the current pipeline model choices for comparison against a
-# previously published analysis of the same outbreak.
+#Fits the chlaa cholera model to Nyiragongo health zone data using pMCMC,
+#matching the current pipeline model choices for comparison against a
+#previously published analysis of the same outbreak.
 #
-# Model choices (matching 01_02_fitting_all_HZs.R):
+#Model choices (matching 01_02_fitting_all_HZs.R):
 #   - frac_neff fitted (N_eff = frac_neff * pop), reporting_rate fixed at 0.30
 #   - contam_half_sat decoupled from N_eff (census-based)
 #   - seed_state quasi-equilibrium initial conditions from E0
 #   - immunity_asym=280, seek_mild=0.1, seek_severe=0.85
 #   - R0-based starting points
 #
-# Steps (matching 01_02 2-stage pipeline):
+#Steps (matching 01_02 2-stage pipeline):
 #   1. Load data and set up parameters with current defaults + interventions
 #   2. Exploratory fit (100 particles, 1000 steps, 3 chains)
 #   3. Learn covariance, warm-start from exploratory
 #   4. Production fit (200 particles, 10000 steps, 3 chains)
 #   5. Diagnostics, plots, and save
-# =============================================================================
+#=============================================================================
 
 library(chlaa)
 library(ggplot2)
@@ -33,9 +33,7 @@ fig_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures"
 data_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/data"
 dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
 
-# -----------------------------------------------------------------------------
-# 1. Load Nyiragongo data
-# -----------------------------------------------------------------------------
+# Load Nyiragongo data ----
 
 hz_name <- "nyiragongo"
 outbreak_start <- as.Date("2022-08-01")
@@ -57,14 +55,14 @@ cat("  Population:", nyiragongo$population[1], "\n")
 time_start <- -21L
 pop_hz <- nyiragongo$population[1]
 
-# Global constants (matching 01_02 pipeline)
+#Global constants (matching 01_02 pipeline)
 H_REF <- 1.0
 POP_REF <- 516000
 RR_FIXED <- 0.30
 E0_MAX <- 800
 K_R0 <- POP_REF * 5.1446e-3 / H_REF
 
-# Quasi-equilibrium seeding
+#Quasi-equilibrium seeding
 seed_state_names <- c("E0", "A0", "M0", "Sev0", "Mu0", "Mt0", "Sevu0", "Sevt0", "C0")
 
 seed_state <- function(E0, p) {
@@ -87,9 +85,7 @@ seed_state <- function(E0, p) {
   s
 }
 
-# -----------------------------------------------------------------------------
-# 2. Intervention dates (from CERF/WHO reports)
-# -----------------------------------------------------------------------------
+# Intervention dates (from CERF/WHO reports) ----
 
 orc_start_day <- as.integer(as.Date("2023-01-16") - outbreak_start)
 orc_end_day <- as.integer(as.Date("2023-07-15") - outbreak_start)
@@ -101,11 +97,11 @@ hyg_start_day <- as.integer(as.Date("2023-01-30") - outbreak_start)
 hyg_end_day <- as.integer(as.Date("2023-07-30") - outbreak_start)
 cati_start_day <- as.integer(as.Date("2023-01-30") - outbreak_start)
 cati_end_day <- as.integer(as.Date("2023-07-30") - outbreak_start)
-# No latrines in this period
+#No latrines in this period
 lat_start_day <- 0L
 lat_end_day <- 0L
 
-# Vaccination: Loo supplementary, RDC MoH 2023; 264,824 doses, single-dose 5-day campaign
+#Vaccination: Loo supplementary, RDC MoH 2023; 264,824 doses, single-dose 5-day campaign
 vax1_start_day <- as.integer(as.Date("2023-01-23") - outbreak_start)
 vax1_end_day <- as.integer(as.Date("2023-01-27") - outbreak_start)
 vax1_total_doses <- 264824L
@@ -117,7 +113,7 @@ cat(sprintf("  Vax1: days %d–%d (%d doses)\n", vax1_start_day, vax1_end_day, v
 cat(sprintf("  Latrines: start=%d, end=%d, effect=%.2f → interval [%d,%d) is empty, SAFE\n",
     lat_start_day, lat_end_day, 0, lat_start_day, lat_end_day))
 
-# Build vaccination schedule arrays
+#Build vaccination schedule arrays
 vax1_n_days <- vax1_end_day - vax1_start_day + 1L
 vax1_daily <- vax1_total_doses / vax1_n_days
 vax1_sched_time <- c(as.integer(time_start), as.integer(vax1_start_day), as.integer(vax1_end_day + 1L))
@@ -128,13 +124,11 @@ cat(sprintf("  Vax1 schedule: %d entries, daily rate = %.0f, sum = %.0f\n",
 cat(sprintf("  Vax1 schedule times: [%s]\n", paste(vax1_sched_time, collapse = ", ")))
 cat(sprintf("  Vax1 schedule doses: [%s]\n", paste(round(vax1_sched_doses, 1), collapse = ", ")))
 
-# Empty vax2 schedule
+#Empty vax2 schedule
 vax2_sched_time <- c(as.integer(time_start), as.integer(time_start + 1L))
 vax2_sched_doses <- c(0, 0)
 
-# -----------------------------------------------------------------------------
-# 3. Parameter factory (current pipeline model choices + interventions)
-# -----------------------------------------------------------------------------
+# Parameter factory (current pipeline model choices + interventions) ----
 
 make_nyiragongo_pars <- function(trans_prob, obs_size, E0, frac_neff = 0.10) {
   N_eff <- frac_neff * pop_hz
@@ -156,7 +150,7 @@ make_nyiragongo_pars <- function(trans_prob, obs_size, E0, frac_neff = 0.10) {
     fatality_untreated = 0.5,
     death_reporting_rate = 0.5,
     obs_size_deaths = 1.0,
-    # Interventions
+    #Interventions
     orc_start = orc_start_day,
     orc_end = orc_end_day,
     ctc_start = ctc_start_day,
@@ -180,7 +174,7 @@ make_nyiragongo_pars <- function(trans_prob, obs_size, E0, frac_neff = 0.10) {
   ss <- seed_state(E0, out)
   for (nm in names(ss)) out[[nm]] <- ss[[nm]]
   out$frac_neff <- frac_neff
-  # Vaccination schedule arrays (required by odin model)
+  #Vaccination schedule arrays (required by odin model)
   out$vax1_schedule_time <- vax1_sched_time
   out$vax1_schedule_doses <- vax1_sched_doses
   out$n_vax1_schedule <- length(vax1_sched_time)
@@ -190,9 +184,7 @@ make_nyiragongo_pars <- function(trans_prob, obs_size, E0, frac_neff = 0.10) {
   out
 }
 
-# -----------------------------------------------------------------------------
-# 4. Fitting configuration (matching 01_02 pipeline)
-# -----------------------------------------------------------------------------
+# Fitting configuration (matching 01_02 pipeline) ----
 
 natural_fit_names <- c("trans_prob", "obs_size", "E0", "frac_neff")
 fit_names <- c("log_trans_prob", "log_obs_size", "log_E0", "logit_frac_neff")
@@ -206,16 +198,14 @@ seed_prod <- 123L
 
 fit_data <- nyiragongo |> select(time, cases, deaths)
 
-# Dynamic E0 initialization
+#Dynamic E0 initialization
 expected_reporting_rate <- 0.10
 E0_val <- ceiling(max(5, mean(nyiragongo$cases[1:min(3, nrow(nyiragongo))])) / expected_reporting_rate)
 E0_val <- min(E0_val, 0.9 * E0_MAX)
 E0_val <- max(10, E0_val)
 cat(sprintf("  Initial E0: %d\n", E0_val))
 
-# -----------------------------------------------------------------------------
-# 5. Helper functions
-# -----------------------------------------------------------------------------
+# Helper functions ----
 
 draws_wide <- function(fit, burnin = 0.25, scale = c("sampled", "natural")) {
   scale <- match.arg(scale)
@@ -271,20 +261,20 @@ plot_case_fit <- function(fit, observed, title, seed, burnin = 0.25) {
   col_gray  <- "#494949"
 
   ggplot() +
-    # 95% UI
+    #95% UI
     geom_line(data = fit_cases, aes(date, q0p025, colour = "95% UI"), linewidth = 0.5) +
     geom_line(data = fit_cases, aes(date, q0p975, colour = "95% UI"), linewidth = 0.5) +
-    # 75% UI (dashed)
+    #75% UI (dashed)
     geom_line(data = fit_cases, aes(date, q0p125, colour = "75% UI"),
               linetype = "dashed", linewidth = 0.5) +
     geom_line(data = fit_cases, aes(date, q0p875, colour = "75% UI"),
               linetype = "dashed", linewidth = 0.5) +
-    # 50% UI
+    #50% UI
     geom_line(data = fit_cases, aes(date, q0p25, colour = "50% UI"), linewidth = 0.5) +
     geom_line(data = fit_cases, aes(date, q0p75, colour = "50% UI"), linewidth = 0.5) +
-    # Mean
+    #Mean
     geom_line(data = fit_cases, aes(date, q0p5, colour = "Mean"), linewidth = 0.8) +
-    # Historical data
+    #Historical data
     geom_line(data = observed, aes(date, cases, colour = "Historical data"), linewidth = 0.5) +
     scale_colour_manual(
       name = NULL,
@@ -313,15 +303,13 @@ plot_case_fit <- function(fit, observed, title, seed, burnin = 0.25) {
     )
 }
 
-# -----------------------------------------------------------------------------
-# 6. Priors and parameterization (current pipeline choices)
-# -----------------------------------------------------------------------------
+# Priors and parameterization (current pipeline choices) ----
 
 fit_prior <- monty::monty_dsl({
-  log_trans_prob ~ Uniform(-9.21034, -2.995732)   # log(c(1e-4, 5e-2))
-  log_obs_size ~ Uniform(0, 5.703782)             # log(c(1, 300))
-  log_E0 ~ Uniform(2.302585, 6.684612)            # log(c(10, 800))
-  logit_frac_neff ~ Uniform(-4.6, 2.944439)       # ~qlogis(c(0.01, 0.95))
+  log_trans_prob ~ Uniform(-9.21034, -2.995732)   #log(c(1e-4, 5e-2))
+  log_obs_size ~ Uniform(0, 5.703782)             #log(c(1, 300))
+  log_E0 ~ Uniform(2.302585, 6.684612)            #log(c(10, 800))
+  logit_frac_neff ~ Uniform(-4.6, 2.944439)       #~qlogis(c(0.01, 0.95))
 }, gradient = FALSE)
 
 add_transformed_values <- function(pars) {
@@ -333,7 +321,7 @@ add_transformed_values <- function(pars) {
 }
 
 make_packer <- function(pars) {
-  # Capture globals locally so closure survives saveRDS/readRDS
+  #Capture globals locally so closure survives saveRDS/readRDS
   h_ref <- H_REF
   pop_ref <- POP_REF
   rr_fixed <- RR_FIXED
@@ -376,9 +364,7 @@ make_start <- function(trans_prob, obs_size, E0, frac_neff = 0.10) {
     add_transformed_values()
 }
 
-# -----------------------------------------------------------------------------
-# 7. R0-based starting points (all 4 params)
-# -----------------------------------------------------------------------------
+# R0-based starting points (all 4 params) ----
 
 r0_targets  <- c(1.5, 2.5, 4.0)
 frac_starts <- c(0.10, 0.05, 0.20)
@@ -390,21 +376,19 @@ starts <- list(
   make_start(tp_starts[3], 100, min(0.9 * E0_MAX, max(10, round(E0_val * 1.5))), frac_neff = frac_starts[3])
 )
 
-# =============================================================================
-# FITTING PIPELINE (2-stage, matching 01_02_fitting_all_HZs.R)
-# =============================================================================
+#=============================================================================
+#FITTING PIPELINE (2-stage, matching 01_02_fitting_all_HZs.R)
+#=============================================================================
 
-# -----------------------------------------------------------------------------
-# 8. Exploratory fit (100 particles, 1000 steps, 3 chains)
-# -----------------------------------------------------------------------------
+# Exploratory fit (100 particles, 1000 steps, 3 chains) ----
 
 cat("\n=== EXPLORATORY FIT ===\n")
 
 explore_proposal <- matrix(0, 4, 4)
-explore_proposal[1, 1] <- 0.02  # log_trans_prob
-explore_proposal[2, 2] <- 0.08  # log_obs_size
-explore_proposal[3, 3] <- 0.08  # log_E0
-explore_proposal[4, 4] <- 0.10  # logit_frac_neff
+explore_proposal[1, 1] <- 0.02  #log_trans_prob
+explore_proposal[2, 2] <- 0.08  #log_obs_size
+explore_proposal[3, 3] <- 0.08  #log_E0
+explore_proposal[4, 4] <- 0.10  #logit_frac_neff
 
 fit_packer_stage1 <- make_packer(starts[[1]])
 
@@ -427,9 +411,7 @@ report_explore <- chlaa_fit_report(fit_explore, burnin = 0.25, thin = 2)
 cat("Exploratory acceptance rate:", report_explore$acceptance_rate, "\n")
 print(report_explore$posterior_summary)
 
-# -----------------------------------------------------------------------------
-# 9. Learn covariance and prepare production
-# -----------------------------------------------------------------------------
+# Learn covariance and prepare production ----
 
 packer <- attr(fit_explore, "packer")
 d <- length(packer$names())
@@ -475,9 +457,7 @@ for (nm in packer$names()) {
 rm(fit_explore, report_explore, packer, pooled)
 gc()
 
-# -----------------------------------------------------------------------------
-# 10. Production fit (200 particles, 10000 steps, 3 chains)
-# -----------------------------------------------------------------------------
+# Production fit (200 particles, 10000 steps, 3 chains) ----
 
 cat("\n=== PRODUCTION FIT ===\n")
 
@@ -504,7 +484,7 @@ if (report_prod$acceptance_rate < 0.10) {
   cat("WARNING: Low acceptance rate may indicate identifiability issues.\n")
 }
 
-# R-hat and ESS
+#R-hat and ESS
 pars_arr <- fit$pars
 dimnames(pars_arr) <- list(attr(fit, "packer")$names(), NULL, NULL)
 draws_diag <- posterior::as_draws_array(aperm(pars_arr, c(2, 3, 1)))
@@ -513,9 +493,7 @@ cat("\n=== R-hat and ESS ===\n")
 print(rhat_ess)
 rm(pars_arr, draws_diag)
 
-# -----------------------------------------------------------------------------
-# 11. Diagnostic plots
-# -----------------------------------------------------------------------------
+# Diagnostic plots ----
 
 p_trace <- chlaa_plot_trace(fit, parameters = natural_fit_names, burnin = 0.25, scale = "natural")
 ggsave(file.path(fig_dir, "fitting_nyiragongo_comparative_trace.png"),
@@ -538,9 +516,7 @@ ggsave(file.path(fig_dir, "fitting_nyiragongo_comparative_fit.png"),
 
 cat("\nPlots saved to:", fig_dir, "\n")
 
-# -----------------------------------------------------------------------------
-# 12. Save fitted artifact
-# -----------------------------------------------------------------------------
+# Save fitted artifact ----
 
 rds_dir <- file.path(fig_dir, ".rds files")
 dir.create(rds_dir, showWarnings = FALSE, recursive = TRUE)
@@ -568,28 +544,28 @@ cat("Fit artifact saved to:", file.path(rds_dir, "nyiragongo_comparative_fit.rds
 message("Nyiragongo comparative fitting complete.")
 
 
-# =============================================================================
-# QUICK EXPLORATION RUN (skip in PBS — run interactively)
-# =============================================================================
-# Minimal pMCMC: 1 chain, 10 particles, 200 steps.
-# Tweak any parameter below (seek_severe, chlor_effect, etc.) and re-run
-# this block to see the effect on the fit plot.
+#=============================================================================
+#QUICK EXPLORATION RUN (skip in PBS - run interactively)
+#=============================================================================
+#Minimal pMCMC: 1 chain, 10 particles, 200 steps.
+#Tweak any parameter below (seek_severe, chlor_effect, etc.) and re-run
+#this block to see the effect on the fit plot.
 #
-# To use: source() the full script first (or run up to here), then
-# run this block as needed.
-# =============================================================================
+#To use: source() the full script first (or run up to here), then
+#run this block as needed.
+#=============================================================================
 
 if (interactive()) {
 
-  # ---- Tweakable parameters ----
-  # Change any of these to explore how the fit responds.
-  # Fitted params (MCMC starting point):
-  quick_trans_prob     <- tp_starts[2]   # middle R0 start
+  #---- Tweakable parameters ----
+  #Change any of these to explore how the fit responds.
+  #Fitted params (MCMC starting point):
+  quick_trans_prob     <- tp_starts[2]   #middle R0 start
   quick_obs_size       <- 30
   quick_E0             <- E0_val
   quick_frac_neff      <- 0.10
 
-  # Fixed params (baked into the packer, not fitted):
+  #Fixed params (baked into the packer, not fitted):
   quick_seek_mild          <- 0.30
   quick_seek_severe        <- 0.68
   quick_chlor_effect       <- 0.20
@@ -601,7 +577,7 @@ if (interactive()) {
   quick_ve_1               <- 0.4
   quick_ve_2               <- 0.7
 
-  # ---- Build parameters with overrides ----
+  #---- Build parameters with overrides ----
   quick_pars <- make_nyiragongo_pars(
     trans_prob = quick_trans_prob,
     obs_size   = quick_obs_size,
@@ -619,7 +595,7 @@ if (interactive()) {
   quick_pars$ve_1               <- quick_ve_1
   quick_pars$ve_2               <- quick_ve_2
 
-  # Re-seed state after overrides (seek values affect initial conditions)
+  #Re-seed state after overrides (seek values affect initial conditions)
   ss <- seed_state(quick_E0, quick_pars)
   for (nm in names(ss)) quick_pars[[nm]] <- ss[[nm]]
 
@@ -646,7 +622,7 @@ if (interactive()) {
   cat("  ve_2 =", quick_ve_2, "\n")
   cat("  frac_neff =", quick_frac_neff, "\n")
 
-  # Pre-flight check: verify starting density is finite
+  #Pre-flight check: verify starting density is finite
   theta0 <- quick_packer$pack(quick_starts[[1]])
   cat("\n  Starting theta:\n")
   print(theta0)
@@ -691,7 +667,7 @@ if (interactive()) {
   )
   print(p_quick)
 
-  # Print production fit for side-by-side comparison
+  #Print production fit for side-by-side comparison
   p_prod <- plot_case_fit(
     fit, nyiragongo,
     "Cholera response model projection (production fit)",

@@ -1,29 +1,29 @@
-# =========================================================================
-# Multi-Site PMCMC Fitting Pipeline for All Health Zones
-# =========================================================================
+#=========================================================================
+#Multi-Site PMCMC Fitting Pipeline for All Health Zones
+#=========================================================================
 #
-# This script wraps the Kirotshe fitting methodology into a function that
-# can be applied to all health zones independently. Each HZ is treated as
-# a spatially independent outbreak, allowing natural parameter variation
-# across geographies without forcing shrinkage to a global mean.
+#This script wraps the Kirotshe fitting methodology into a function that
+#can be applied to all health zones independently. Each HZ is treated as
+#a spatially independent outbreak, allowing natural parameter variation
+#across geographies without forcing shrinkage to a global mean.
 #
-# Key features:
-# - Dynamic E0 initialization with seed_state quasi-equilibrium
-# - frac_neff: effective population fraction (N_eff = frac * pop_hz)
-# - contam_half_sat decoupled from N_eff (uses census pop)
-# - reporting_rate fixed at 0.30, not fitted
-# - R0-based starting points
-# - Proper R-hat / ESS diagnostics via posterior package
-# - Individual output files per HZ to prevent cascade failures
+#Key features:
+#- Dynamic E0 initialization with seed_state quasi-equilibrium
+#- frac_neff: effective population fraction (N_eff = frac * pop_hz)
+#- contam_half_sat decoupled from N_eff (uses census pop)
+#- reporting_rate fixed at 0.30, not fitted
+#- R0-based starting points
+#- Proper R-hat / ESS diagnostics via posterior package
+#- Individual output files per HZ to prevent cascade failures
 #
-# =========================================================================
+#=========================================================================
 
 library(chlaa)
 library(ggplot2)
 library(tidyverse)
 library(posterior)
 
-# ---- Setup ----
+#---- Setup ----
 
 data_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/data"
 output_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/output"
@@ -36,13 +36,13 @@ dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
 dir.create(rds_dir, showWarnings = FALSE, recursive = TRUE)
 dir.create(tables_dir, showWarnings = FALSE, recursive = TRUE)
 
-# ---- Global constants ----
+#---- Global constants ----
 
 H_REF <- 1.0
 POP_REF <- 516000
 RR_FIXED <- 0.30
 
-# ---- Quasi-equilibrium seeding ----
+#---- Quasi-equilibrium seeding ----
 
 seed_state_names <- c("E0", "A0", "M0", "Sev0", "Mu0", "Mt0", "Sevu0", "Sevt0", "C0")
 
@@ -66,7 +66,7 @@ seed_state <- function(E0, p) {
     s
 }
 
-# ---- Shared plotting helper ----
+#---- Shared plotting helper ----
 
 plot_case_fit <- function(fit, observed, title, seed, burnin = 0.25) {
     fc <- chlaa_forecast_from_fit(
@@ -104,7 +104,7 @@ plot_case_fit <- function(fit, observed, title, seed, burnin = 0.25) {
         labs(x = NULL, y = "Weekly reported cases", title = title)
 }
 
-# ---- Core Fitting Function ----
+#---- Core Fitting Function ----
 
 fit_hz <- function(hz_name,
                    n_explore = 100,
@@ -114,13 +114,13 @@ fit_hz <- function(hz_name,
                    seed_explore = 42,
                    seed_prod = 123,
                    variance_check_reps = 20,
-                   variance_target = 2, # target Var[log-lik], not sd
+                   variance_target = 2, #target Var[log-lik], not sd
                    verbose = TRUE) {
     if (verbose) cat("\n========================================\n")
     if (verbose) cat("Fitting health zone:", hz_name, "\n")
     if (verbose) cat("========================================\n")
 
-    # ---- 1. Load and prepare data ----
+    #---- 1. Load and prepare data ----
 
     hz_params_long <- read.csv(file.path(data_dir, "hz_parameters.csv"),
         stringsAsFactors = FALSE
@@ -131,7 +131,7 @@ fit_hz <- function(hz_name,
         stringsAsFactors = FALSE
     )
 
-    # ---- 2. Extract parameters for this HZ ----
+    #---- 2. Extract parameters for this HZ ----
 
     hz_rows_long <- hz_params_long %>% filter(hz == hz_name)
 
@@ -153,10 +153,10 @@ fit_hz <- function(hz_name,
 
     if (verbose) cat("Outbreak window:", as.character(outbreak_start), "to", as.character(outbreak_end), "\n")
 
-    # Burn-in: model starts this many days before first observation (day 7)
+    #Burn-in: model starts this many days before first observation (day 7)
     time_start <- -21L
 
-    # ---- 3. Helper functions ----
+    #---- 3. Helper functions ----
 
     safe_date_to_day <- function(date_str, origin) {
         d <- as.Date(date_str, format = "%Y-%m-%d")
@@ -177,7 +177,7 @@ fit_hz <- function(hz_name,
         val
     }
 
-    # ---- 4. Extract intervention dates ----
+    #---- 4. Extract intervention dates ----
 
     orc_start_day <- safe_date_to_day(get_param("orc_start"), outbreak_start)
     orc_end_day <- safe_date_to_day(get_param("orc_end"), outbreak_start)
@@ -197,7 +197,7 @@ fit_hz <- function(hz_name,
     cati_effect_val <- as.numeric(get_param("cati_effect"))
     lat_effect_val <- as.numeric(get_param("lat_effect"))
 
-    # ---- 5. Handle vaccination campaigns with delivery profiles ----
+    #---- 5. Handle vaccination campaigns with delivery profiles ----
 
     generate_vax_schedule <- function(total_doses, start_date, end_date, outbreak_start) {
         profile <- c(0.305, 0.377, 0.227, 0.074, 0.014, 0.003)
@@ -235,7 +235,7 @@ fit_hz <- function(hz_name,
             healthzone == gsub("_", " ", hz_name) |
             healthzone == gsub("_", "-", hz_name))
 
-    # vax1
+    #vax1
     vax1_total_doses_hz <- hz_rows_long %>%
         filter(parameter == "vax1_total_doses") %>%
         pull(value) %>%
@@ -268,17 +268,17 @@ fit_hz <- function(hz_name,
                 outbreak_start = outbreak_start
             )
             vax1_arrays <- prepare_vax_arrays(vax1_schedule)
-            # NOTE: min(vax1_schedule$time) would incorrectly pick up the
-            # zero-dose interpolation anchor point that generate_vax_schedule()
-            # prepends at time_start (see line ~219-221) when the real campaign
-            # starts after time_start - that anchor is only there so the odin
-            # model has an interpolation point before the campaign, not a
-            # signal that dosing began there. Using the first day with
-            # doses > 0 gives the true campaign start (this previously made
-            # vax1_start_day negative for every HZ with a real campaign,
-            # which failed the `vax1_start_day > 0` gate below and silently
-            # zeroed out vax1_start/vax1_end/vax1_total_doses - the fields
-            # the simulator actually uses to switch vaccination on).
+            #NOTE: min(vax1_schedule$time) would incorrectly pick up the
+            #zero-dose interpolation anchor point that generate_vax_schedule()
+            #prepends at time_start (see line ~219-221) when the real campaign
+            #starts after time_start - that anchor is only there so the odin
+            #model has an interpolation point before the campaign, not a
+            #signal that dosing began there. Using the first day with
+            #doses > 0 gives the true campaign start (this previously made
+            #vax1_start_day negative for every HZ with a real campaign,
+            #which failed the `vax1_start_day > 0` gate below and silently
+            #zeroed out vax1_start/vax1_end/vax1_total_doses - the fields
+            #the simulator actually uses to switch vaccination on).
             vax1_start_day <- min(vax1_schedule$time[vax1_schedule$doses > 0])
             vax1_end_day <- max(vax1_schedule$time) + 1
 
@@ -303,7 +303,7 @@ fit_hz <- function(hz_name,
         vax1_end_day <- 0L
     }
 
-    # vax2
+    #vax2
     vax2_total_doses_hz <- hz_rows_long %>%
         filter(parameter == "vax2_total_doses") %>%
         pull(value) %>%
@@ -336,9 +336,9 @@ fit_hz <- function(hz_name,
                 outbreak_start = outbreak_start
             )
             vax2_arrays <- prepare_vax_arrays(vax2_schedule)
-            # See the matching NOTE above vax1_start_day: exclude the
-            # zero-dose interpolation anchor point when finding the true
-            # campaign start.
+            #See the matching NOTE above vax1_start_day: exclude the
+            #zero-dose interpolation anchor point when finding the true
+            #campaign start.
             vax2_start_day <- min(vax2_schedule$time[vax2_schedule$doses > 0])
             vax2_end_day <- max(vax2_schedule$time) + 1
 
@@ -359,7 +359,7 @@ fit_hz <- function(hz_name,
         vax2_end_day <- 0L
     }
 
-    # ---- 6. Prepare weekly case data ----
+    #---- 6. Prepare weekly case data ----
 
     hz_weekly <- idsr %>%
         filter(hz == hz_name) %>%
@@ -385,7 +385,7 @@ fit_hz <- function(hz_name,
         select(time, date, cases, deaths) %>%
         arrange(time)
 
-    # ---- 7. Fitting infrastructure ----
+    #---- 7. Fitting infrastructure ----
 
     natural_fit_names <- c("trans_prob", "obs_size", "E0", "frac_neff")
     fit_names <- c("log_trans_prob", "log_obs_size", "log_E0", "logit_frac_neff")
@@ -399,7 +399,7 @@ fit_hz <- function(hz_name,
     }
 
     make_packer <- function(pars) {
-        # Capture globals locally so closure survives saveRDS/readRDS
+        #Capture globals locally so closure survives saveRDS/readRDS
         h_ref <- H_REF
         pop_ref <- POP_REF
         rr_fixed <- RR_FIXED
@@ -501,7 +501,7 @@ fit_hz <- function(hz_name,
             })
     }
 
-    # ---- 8. E0 initialization ----
+    #---- 8. E0 initialization ----
 
     expected_reporting_rate <- 0.10
     seed_date <- outbreak_start - 14
@@ -520,7 +520,7 @@ fit_hz <- function(hz_name,
     }
 
     E0_MAX <- 800
-    E0_val <- min(E0_val, 0.9 * E0_MAX) # start at most 720, strictly inside
+    E0_val <- min(E0_val, 0.9 * E0_MAX) #start at most 720, strictly inside
     E0_val <- max(10, E0_val)
 
     if (verbose) {
@@ -532,22 +532,22 @@ fit_hz <- function(hz_name,
         cat(sprintf("Initial seeding: E0=%d\n", E0_val))
     }
 
-    # ---- 9. Prior (4 params, reporting_rate fixed at %.2f) ----
+    #---- 9. Prior (4 params, reporting_rate fixed at %.2f) ----
 
     fit_prior <- monty::monty_dsl(
         {
-            log_trans_prob ~ Uniform(-9.21034, -2.995732) # log(c(1e-4, 5e-2))
+            log_trans_prob ~ Uniform(-9.21034, -2.995732) #log(c(1e-4, 5e-2))
             log_obs_size ~ Uniform(0, 5.703782)
-            log_E0 ~ Uniform(2.302585, 6.684612) # log(c(10, 800))
-            logit_frac_neff ~ Uniform(-4.6, 2.944439) # ~qlogis(c(0.01, 0.95))
+            log_E0 ~ Uniform(2.302585, 6.684612) #log(c(10, 800))
+            logit_frac_neff ~ Uniform(-4.6, 2.944439) #~qlogis(c(0.01, 0.95))
         },
         gradient = FALSE
     )
 
-    # ---- 10. R0-based starting points ----
-    # trans_prob is exactly linear in R0 (contact_rate = 0 throughout this
-    # pipeline), so a unit-trans_prob probe through chlaa_r0() gives an exact
-    # per-chain inversion without needing a separate closed-form constant.
+    #---- 10. R0-based starting points ----
+    #trans_prob is exactly linear in R0 (contact_rate = 0 throughout this
+    #pipeline), so a unit-trans_prob probe through chlaa_r0() gives an exact
+    #per-chain inversion without needing a separate closed-form constant.
 
     r0_targets <- c(1.5, 2.5, 4.0)
     frac_starts <- c(0.10, 0.05, 0.20)
@@ -570,7 +570,7 @@ fit_hz <- function(hz_name,
 
     fit_packer_stage1 <- make_packer(fit_starts[[1]])
 
-    # ---- 11. Prepare fit data ----
+    #---- 11. Prepare fit data ----
 
     fit_data <- data.frame(
         time = hz_data_weekly$time,
@@ -578,13 +578,13 @@ fit_hz <- function(hz_name,
         deaths = hz_data_weekly$deaths
     )
 
-    # ---- 12. Exploratory fit ----
+    #---- 12. Exploratory fit ----
 
     explore_proposal <- matrix(0, 4, 4)
-    explore_proposal[1, 1] <- 0.02 # log_trans_prob
-    explore_proposal[2, 2] <- 0.08 # log_obs_size
-    explore_proposal[3, 3] <- 0.08 # log_E0
-    explore_proposal[4, 4] <- 0.10 # logit_frac_neff
+    explore_proposal[1, 1] <- 0.02 #log_trans_prob
+    explore_proposal[2, 2] <- 0.08 #log_obs_size
+    explore_proposal[3, 3] <- 0.08 #log_E0
+    explore_proposal[4, 4] <- 0.10 #logit_frac_neff
 
     if (verbose) cat("\n=== EXPLORATORY FIT ===\n")
 
@@ -627,13 +627,13 @@ fit_hz <- function(hz_name,
         }
     )
 
-    # ---- 13. Exploratory diagnostics ----
+    #---- 13. Exploratory diagnostics ----
 
     report_explore <- chlaa_fit_report(fit_explore, burnin = 0.25, thin = 2)
     if (verbose) cat("Exploratory acceptance rate:", report_explore$acceptance_rate, "\n")
     if (verbose) print(report_explore$posterior_summary)
 
-    # ---- 14. Learn covariance and prepare production ----
+    #---- 14. Learn covariance and prepare production ----
 
     packer <- attr(fit_explore, "packer")
     d <- length(packer$names())
@@ -681,7 +681,7 @@ fit_hz <- function(hz_name,
     rm(fit_explore, report_explore, packer, pooled)
     gc()
 
-    # ---- 15. Production fit ----
+    #---- 15. Production fit ----
 
     if (verbose) cat("\n=== PRODUCTION FIT ===\n")
 
@@ -724,10 +724,10 @@ fit_hz <- function(hz_name,
         }
     )
 
-    # ---- 15b. Particle-count / log-likelihood variance check ----
-    # pMCMC targets the exact posterior only if Var[log p-hat(y|theta)] at the
-    # posterior mode is small (rule of thumb: approx 1-2). n_prod is fixed
-    # across all HZs, so check it here and bump particles + refit if needed.
+    #---- 15b. Particle-count / log-likelihood variance check ----
+    #pMCMC targets the exact posterior only if Var[log p-hat(y|theta)] at the
+    #posterior mode is small (rule of thumb: approx 1-2). n_prod is fixed
+    #across all HZs, so check it here and bump particles + refit if needed.
 
     packer_prod <- attr(fit, "packer")
     n_samples_prod <- dim(fit$pars)[2]
@@ -805,7 +805,7 @@ fit_hz <- function(hz_name,
         var_loglik = as.numeric(variance_by_particles)
     )
 
-    # ---- 16. Production diagnostics ----
+    #---- 16. Production diagnostics ----
 
     report_prod <- chlaa_fit_report(fit, burnin = 0.25, thin = 2)
     if (verbose) cat("Production acceptance rate:", report_prod$acceptance_rate, "\n")
@@ -815,10 +815,10 @@ fit_hz <- function(hz_name,
         if (verbose) cat("WARNING: Low acceptance rate may indicate identifiability issues.\n")
     }
 
-    # R-hat and ESS (proper multi-chain diagnostic)
-    pars_arr <- fit$pars # (param, iter, chain)
+    #R-hat and ESS (proper multi-chain diagnostic)
+    pars_arr <- fit$pars #(param, iter, chain)
     dimnames(pars_arr) <- list(attr(fit, "packer")$names(), NULL, NULL)
-    draws_diag <- posterior::as_draws_array(aperm(pars_arr, c(2, 3, 1))) # (iter, chain, param)
+    draws_diag <- posterior::as_draws_array(aperm(pars_arr, c(2, 3, 1))) #(iter, chain, param)
     rhat_ess <- posterior::summarise_draws(draws_diag, "rhat", "ess_bulk", "ess_tail")
     if (verbose) {
         cat("\n=== R-hat and ESS ===\n")
@@ -826,7 +826,7 @@ fit_hz <- function(hz_name,
     }
     rm(pars_arr, draws_diag)
 
-    # ---- 17. Diagnostic plots ----
+    #---- 17. Diagnostic plots ----
 
     p_trace <- chlaa_plot_trace(fit, parameters = natural_fit_names, burnin = 0.25, scale = "natural")
     ggsave(file.path(fig_dir, sprintf("fitting_%s_production_trace.png", hz_name)),
@@ -858,7 +858,7 @@ fit_hz <- function(hz_name,
         width = 12, height = 8, dpi = 300
     )
 
-    # ---- 18. Fit plot ----
+    #---- 18. Fit plot ----
 
     n_weeks <- nrow(hz_data_weekly)
 
@@ -872,7 +872,7 @@ fit_hz <- function(hz_name,
         width = 10, height = 6, dpi = 300
     )
 
-    # ---- 19. Compute R0 and diagnostics for this HZ ----
+    #---- 19. Compute R0 and diagnostics for this HZ ----
 
     tr_s <- chlaa_fit_trace(fit, burnin = 0.25, scale = "sampled")
     tp_draws <- exp(tr_s |> filter(parameter == "log_trans_prob") |> pull(value))
@@ -896,7 +896,7 @@ fit_hz <- function(hz_name,
         N_eff_med = median(fn_draws) * pop_hz
     )
 
-    # Build diagnostics row
+    #Build diagnostics row
     E0_draws <- exp(tr_s |> filter(parameter == "log_E0") |> pull(value))
     obs_draws <- exp(tr_s |> filter(parameter == "log_obs_size") |> pull(value))
 
@@ -913,7 +913,7 @@ fit_hz <- function(hz_name,
         loglik_var_at_n_prod = as.numeric(var_at_n_prod),
         loglik_var_target = variance_target
     )
-    # Append per-parameter R-hat and ESS
+    #Append per-parameter R-hat and ESS
     for (i in seq_len(nrow(rhat_ess))) {
         nm <- rhat_ess$variable[i]
         diag_row[[paste0("rhat_", nm)]] <- rhat_ess$rhat[i]
@@ -921,7 +921,7 @@ fit_hz <- function(hz_name,
         diag_row[[paste0("ess_tail_", nm)]] <- rhat_ess$ess_tail[i]
     }
 
-    # --- Budget table: posterior-median deterministic run ---
+    #--- Budget table: posterior-median deterministic run ---
     p_med <- make_start(median(tp_draws), median(obs_draws), median(E0_draws),
         frac_neff = median(fn_draws)
     )
@@ -949,7 +949,7 @@ fit_hz <- function(hz_name,
         sat_min = min(sat), sat_max = max(sat)
     )
 
-    # --- PPC coverage ---
+    #--- PPC coverage ---
     fc_ppc <- chlaa_forecast_from_fit(fit,
         time = hz_data_weekly$time,
         vars = "inc_symptoms_weekly", include_cases = TRUE,
@@ -962,13 +962,13 @@ fit_hz <- function(hz_name,
     diag_row$cover_50 <- mean(cv$cases >= cv$q0p25 & cv$cases <= cv$q0p75)
     diag_row$cover_95 <- mean(cv$cases >= cv$q0p025 & cv$cases <= cv$q0p975)
 
-    # Save per-HZ tables (for array job mode)
+    #Save per-HZ tables (for array job mode)
     write.csv(r0_table, file.path(tables_dir, sprintf("%s_r0_table.csv", hz_name)), row.names = FALSE)
     write.csv(diag_row, file.path(tables_dir, sprintf("%s_diagnostics.csv", hz_name)), row.names = FALSE)
     write.csv(budget_row, file.path(tables_dir, sprintf("%s_budget.csv", hz_name)), row.names = FALSE)
     write.csv(variance_check_table, file.path(tables_dir, sprintf("%s_particle_variance.csv", hz_name)), row.names = FALSE)
 
-    # ---- 20. Save fit object ----
+    #---- 20. Save fit object ----
 
     fit_output <- list(
         hz_name = hz_name,
@@ -1005,12 +1005,12 @@ fit_hz <- function(hz_name,
     return(fit_output)
 }
 
-# ---- Main Execution ----
+#---- Main Execution ----
 
 args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) > 0) {
-    # Array job mode: fit single HZ specified by argument
+    #Array job mode: fit single HZ specified by argument
     hz_to_fit <- args[1]
 
     cat("\n", rep("=", 60), "\n", sep = "")
@@ -1040,7 +1040,7 @@ if (length(args) > 0) {
         quit(status = 1)
     }
 } else {
-    # Interactive mode: fit all HZs sequentially (for testing)
+    #Interactive mode: fit all HZs sequentially (for testing)
     cat("No HZ specified. Running in test mode for all HZs sequentially.\n")
     cat("For production use, submit as array job with HZ name as argument.\n\n")
 
@@ -1065,7 +1065,7 @@ if (length(args) > 0) {
         )
     }
 
-    # Summary
+    #Summary
     cat("\n", rep("=", 60), "\n", sep = "")
     cat("FITTING SUMMARY\n")
     cat(rep("=", 60), "\n", sep = "")
@@ -1082,7 +1082,7 @@ if (length(args) > 0) {
         cat("Failed HZs:", paste(failed_hzs, collapse = ", "), "\n")
     }
 
-    # Combine per-HZ tables into aggregated files
+    #Combine per-HZ tables into aggregated files
     successful <- Filter(Negate(is.null), results)
     if (length(successful) > 0) {
         r0_all <- dplyr::bind_rows(lapply(successful, function(x) x$r0_table))

@@ -1,13 +1,13 @@
-# =============================================================================
-# Kirotshe Fitting Vignette
-# Reproduces: https://ojwatson.github.io/chlaa/articles/fitting.html
+#=============================================================================
+#Kirotshe Fitting Vignette
+#Reproduces: https://ojwatson.github.io/chlaa/articles/fitting.html
 #
-# This script fits the chlaa cholera model to Kirotshe health zone data using
-# pMCMC. It progresses through: (1) synthetic data validation on raw and
-# transformed scales, (2) pilot runs to learn proposal covariance, (3)
-# deterministic main runs, and (4) stochastic particle-filter runs on both
-# synthetic and real data.
-# =============================================================================
+#This script fits the chlaa cholera model to Kirotshe health zone data using
+#pMCMC. It progresses through: (1) synthetic data validation on raw and
+#transformed scales, (2) pilot runs to learn proposal covariance, (3)
+#deterministic main runs, and (4) stochastic particle-filter runs on both
+#synthetic and real data.
+#=============================================================================
 
 library(chlaa)
 library(ggplot2)
@@ -17,14 +17,12 @@ library(readr)
 library(purrr)
 library(coda)
 
-# Directory for saving figures
+#Directory for saving figures
 fig_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures"
 
-# -----------------------------------------------------------------------------
-# 1. File path helpers
-# -----------------------------------------------------------------------------
-# These utilities manage file paths for locating data files within the
-# repository structure.
+# File path helpers ----
+#These utilities manage file paths for locating data files within the
+#repository structure.
 
 repo_file <- function(...) {
   candidates <- c(file.path(...), file.path("..", ...))
@@ -48,11 +46,9 @@ extdata_file <- function(...) {
   repo_file("inst", "extdata", ...)
 }
 
-# -----------------------------------------------------------------------------
-# 2. Load Kirotshe data
-# -----------------------------------------------------------------------------
-# Imports weekly case counts and intervention metadata for the Kirotshe health
-# zone, establishing temporal bounds for the outbreak window.
+# Load Kirotshe data ----
+#Imports weekly case counts and intervention metadata for the Kirotshe health
+#zone, establishing temporal bounds for the outbreak window.
 
 hz_name <- "kirotshe"
 
@@ -76,9 +72,9 @@ kirotshe <- read_csv(file.path(data_dir, "IDSR_dataset.csv"), show_col_types = F
   filter(date >= outbreak_start_date, date <= outbreak_end_date) |>
   mutate(time = seq_len(n()) * 7L) |>
   select(date, time, cases, deaths, population, cases_pop)
-# NOTE: deaths column retains NAs; chlaa_prepare_data() converts them to
-# deaths=0 + has_deaths=0 (non-informative), while actual death counts get
-# has_deaths=1 (informative).
+#NOTE: deaths column retains NAs; chlaa_prepare_data() converts them to
+#deaths=0 + has_deaths=0 (non-informative), while actual death counts get
+#has_deaths=1 (informative).
 
 outbreak_start <- outbreak_start_date
 outbreak_end <- outbreak_end_date
@@ -87,10 +83,8 @@ kirotshe |>
   select(date, time, cases, population, cases_pop) |>
   head()
 
-# -----------------------------------------------------------------------------
-# 3. Plot observed data
-# -----------------------------------------------------------------------------
-# Bar chart showing weekly reported case counts over time.
+# Plot observed data ----
+#Bar chart showing weekly reported case counts over time.
 
 p_observed <- ggplot(kirotshe, aes(date, cases)) +
   geom_col(width = 6, fill = "grey65") +
@@ -106,12 +100,10 @@ ggsave(
   plot = p_observed, width = 10, height = 6, dpi = 300
 )
 
-# -----------------------------------------------------------------------------
-# 4. Convert dates to model time offsets
-# -----------------------------------------------------------------------------
-# Translates calendar dates to day offsets relative to outbreak start, handling
-# various public health interventions (ORC, CTC, chlorination, hygiene, CATI,
-# and latrines).
+# Convert dates to model time offsets ----
+#Translates calendar dates to day offsets relative to outbreak start, handling
+#various public health interventions (ORC, CTC, chlorination, hygiene, CATI,
+#and latrines).
 
 date_to_day <- function(x, origin) {
   d <- as.Date(x)
@@ -147,21 +139,19 @@ tibble(
   value = unlist(intervention_days)
 )
 
-# Burn-in: model starts this many days before first observation (day 7)
-# to let environmental contamination build up before the particle filter
+#Burn-in: model starts this many days before first observation (day 7)
+#to let environmental contamination build up before the particle filter
 time_start <- -21L
 
-# Reference population for scaling contam_half_sat (Kirotshe ~516k)
-# This makes the environmental FOI depend on per-capita prevalence rather
-# than absolute case counts, so trans_prob stays comparable across zones.
+#Reference population for scaling contam_half_sat (Kirotshe ~516k)
+#This makes the environmental FOI depend on per-capita prevalence rather
+#than absolute case counts, so trans_prob stays comparable across zones.
 pop_ref <- 516000
 contam_half_sat_scaled <- 0.01 * (kirotshe$population[1] / pop_ref)
 
-# -----------------------------------------------------------------------------
-# 5. Parameter factory function
-# -----------------------------------------------------------------------------
-# Creates parameter objects for simulation and fitting, accepting four free
-# parameters while fixing others to epidemiologically informed defaults.
+# Parameter factory function ----
+#Creates parameter objects for simulation and fitting, accepting four free
+#parameters while fixing others to epidemiologically informed defaults.
 
 make_kirotshe_pars <- function(trans_prob,
                                reporting_rate,
@@ -190,8 +180,8 @@ make_kirotshe_pars <- function(trans_prob,
       intervention_days
     )
   )
-  # Empty vaccination schedule arrays required by the odin model;
-  # must cover time_start for dust2 interpolation
+  #Empty vaccination schedule arrays required by the odin model;
+  #must cover time_start for dust2 interpolation
   out$vax1_schedule_time <- c(time_start, time_start + 1L)
   out$vax1_schedule_doses <- c(0, 0)
   out$n_vax1_schedule <- 2L
@@ -201,11 +191,9 @@ make_kirotshe_pars <- function(trans_prob,
   out
 }
 
-# -----------------------------------------------------------------------------
-# 6. Generate synthetic data
-# -----------------------------------------------------------------------------
-# Simulates an outbreak with known parameter values, generating synthetic
-# weekly case counts from a negative binomial observation model.
+# Generate synthetic data ----
+#Simulates an outbreak with known parameter values, generating synthetic
+#weekly case counts from a negative binomial observation model.
 
 truth_pars <- make_kirotshe_pars(
   trans_prob = 8.5e-4,
@@ -242,10 +230,8 @@ truth_values <- tibble(parameter = names(truth_vec), truth = as.numeric(truth_ve
 truth_values
 
 
-# -----------------------------------------------------------------------------
-# 7. Plot synthetic data
-# -----------------------------------------------------------------------------
-# Overlays noisy case observations with the underlying expected incidence curve.
+# Plot synthetic data ----
+#Overlays noisy case observations with the underlying expected incidence curve.
 
 p_synthetic <- ggplot() +
   geom_col(data = synthetic_weekly, aes(date, cases), width = 6, fill = "grey70") +
@@ -263,27 +249,23 @@ ggsave(
   plot = p_synthetic, width = 10, height = 6, dpi = 300
 )
 
-# -----------------------------------------------------------------------------
-# 8. Diagnostic configuration
-# -----------------------------------------------------------------------------
-# Defines MCMC configuration: three parallel chains with specified iteration
-# counts for pilot, deterministic, and particle-filter phases.
+# Diagnostic configuration ----
+#Defines MCMC configuration: three parallel chains with specified iteration
+#counts for pilot, deterministic, and particle-filter phases.
 
 n_chains <- 3L
 pilot_steps <- 5000L
 deterministic_steps <- 20000L
 particle_steps <- 5000L
 particle_count <- 50L
-# Synthetic data has no deaths observations; set deaths = 0 with has_deaths
-# handled by chlaa_prepare_data (deaths = 0 + has_deaths = 0 → non-informative).
+#Synthetic data has no deaths observations; set deaths = 0 with has_deaths
+#handled by chlaa_prepare_data (deaths = 0 + has_deaths = 0 -> non-informative).
 fit_data_synthetic <- synthetic_weekly |> select(time, cases)
 fit_data_real <- kirotshe |> select(time, cases, deaths)
 
-# -----------------------------------------------------------------------------
-# 9. Trace extraction function
-# -----------------------------------------------------------------------------
-# Converts trace data to wide format for convenience in downstream analyses
-# after removing burn-in period.
+# Trace extraction function ----
+#Converts trace data to wide format for convenience in downstream analyses
+#after removing burn-in period.
 
 draws_wide <- function(fit, burnin = 0.25, scale = c("sampled", "natural")) {
   scale <- match.arg(scale)
@@ -292,21 +274,17 @@ draws_wide <- function(fit, burnin = 0.25, scale = c("sampled", "natural")) {
     arrange(chain, iteration)
 }
 
-# -----------------------------------------------------------------------------
-# 10. Acceptance summary function
-# -----------------------------------------------------------------------------
-# Extracts and labels acceptance rates across chains at different fitting stages.
+# Acceptance summary function ----
+#Extracts and labels acceptance rates across chains at different fitting stages.
 
 acceptance_summary <- function(fit, stage, burnin = 0.25) {
   chlaa_fit_report(fit, burnin = burnin)$acceptance_by_chain |>
     mutate(stage = stage, .before = 1)
 }
 
-# -----------------------------------------------------------------------------
-# 11. ESS summary function
-# -----------------------------------------------------------------------------
-# Computes effective sample size per chain, translating autocorrelated draws
-# into equivalent independent samples.
+# ESS summary function ----
+#Computes effective sample size per chain, translating autocorrelated draws
+#into equivalent independent samples.
 
 ess_summary <- function(fit, stage, burnin = 0.25, parameters = NULL) {
   dr <- draws_wide(fit, burnin = burnin, scale = "sampled")
@@ -323,11 +301,9 @@ ess_summary <- function(fit, stage, burnin = 0.25, parameters = NULL) {
     mutate(stage = stage, .before = 1)
 }
 
-# -----------------------------------------------------------------------------
-# 12. R-hat summary function
-# -----------------------------------------------------------------------------
-# Computes Gelman-Rubin convergence diagnostics assessing whether chains from
-# different starting points agree.
+# R-hat summary function ----
+#Computes Gelman-Rubin convergence diagnostics assessing whether chains from
+#different starting points agree.
 
 rhat_summary <- function(fit, stage, burnin = 0.25, parameters = NULL) {
   dr <- draws_wide(fit, burnin = burnin, scale = "sampled")
@@ -353,11 +329,9 @@ rhat_summary <- function(fit, stage, burnin = 0.25, parameters = NULL) {
   )
 }
 
-# -----------------------------------------------------------------------------
-# 13. Parameter summary function
-# -----------------------------------------------------------------------------
-# Summarizes posterior credible intervals on natural scale, optionally checking
-# whether true values are covered.
+# Parameter summary function ----
+#Summarizes posterior credible intervals on natural scale, optionally checking
+#whether true values are covered.
 
 parameter_summary <- function(fit, stage, burnin = 0.25, truth = NULL) {
   out <- draws_wide(fit, burnin = burnin, scale = "natural") |>
@@ -381,11 +355,9 @@ parameter_summary <- function(fit, stage, burnin = 0.25, truth = NULL) {
   out
 }
 
-# -----------------------------------------------------------------------------
-# 14. Positive definite covariance helper
-# -----------------------------------------------------------------------------
-# Ensures a covariance matrix is positive definite by flooring small
-# eigenvalues and reconstructing.
+# Positive definite covariance helper ----
+#Ensures a covariance matrix is positive definite by flooring small
+#eigenvalues and reconstructing.
 
 make_pd <- function(x, min_eig = 1e-10) {
   x <- (x + t(x)) / 2
@@ -396,11 +368,9 @@ make_pd <- function(x, min_eig = 1e-10) {
   out
 }
 
-# -----------------------------------------------------------------------------
-# 15. Extract proposal covariance from fit
-# -----------------------------------------------------------------------------
-# Learns proposal covariance from pilot chain output, scaling using the
-# Roberts-Rosenthal adaptation formula.
+# Extract proposal covariance from fit ----
+#Learns proposal covariance from pilot chain output, scaling using the
+#Roberts-Rosenthal adaptation formula.
 
 proposal_from_fit <- function(fit, burnin = 0.25, scale = 1) {
   dr <- draws_wide(fit, burnin = burnin, scale = "sampled")
@@ -408,11 +378,9 @@ proposal_from_fit <- function(fit, burnin = 0.25, scale = 1) {
   make_pd(cov(theta) * (2.38^2 / ncol(theta)) * scale)
 }
 
-# -----------------------------------------------------------------------------
-# 16. Parameters from theta vector
-# -----------------------------------------------------------------------------
-# Converts parameter vector to full parameter object by unpacking and
-# selectively updating.
+# Parameters from theta vector ----
+#Converts parameter vector to full parameter object by unpacking and
+#selectively updating.
 
 pars_from_theta <- function(theta, template_pars, packer) {
   theta <- as.numeric(theta)
@@ -428,11 +396,9 @@ pars_from_theta <- function(theta, template_pars, packer) {
   out
 }
 
-# -----------------------------------------------------------------------------
-# 17. Chain median starting points
-# -----------------------------------------------------------------------------
-# Extracts posterior medians from each deterministic chain to initialize
-# particle-filter chains.
+# Chain median starting points ----
+#Extracts posterior medians from each deterministic chain to initialize
+#particle-filter chains.
 
 chain_median_starts <- function(fit, template_pars, burnin = 0.25) {
   dr <- draws_wide(fit, burnin = burnin, scale = "sampled")
@@ -447,11 +413,9 @@ chain_median_starts <- function(fit, template_pars, burnin = 0.25) {
     })
 }
 
-# -----------------------------------------------------------------------------
-# 18. Posterior predictive plot function
-# -----------------------------------------------------------------------------
-# Generates posterior predictive plots showing observation intervals and medians
-# against observed data.
+# Posterior predictive plot function ----
+#Generates posterior predictive plots showing observation intervals and medians
+#against observed data.
 
 plot_case_fit <- function(fit, observed, title, seed, burnin = 0.25) {
   fc <- chlaa_forecast_from_fit(
@@ -489,11 +453,9 @@ plot_case_fit <- function(fit, observed, title, seed, burnin = 0.25) {
     labs(x = NULL, y = "Weekly reported cases", title = title)
 }
 
-# -----------------------------------------------------------------------------
-# 19. Raw-scale starting points
-# -----------------------------------------------------------------------------
-# Constructs three dispersed starting points on natural scale for the
-# diagnostic raw-scale fit.
+# Raw-scale starting points ----
+#Constructs three dispersed starting points on natural scale for the
+#diagnostic raw-scale fit.
 
 make_raw_start <- function(trans_prob, reporting_rate, obs_size, E0) {
   make_kirotshe_pars(
@@ -520,10 +482,8 @@ bind_rows(
 ) |>
   pivot_wider(names_from = parameter, values_from = value)
 
-# -----------------------------------------------------------------------------
-# 20. Raw-scale prior and packer
-# -----------------------------------------------------------------------------
-# Defines prior distributions and proposal variances for raw-scale fitting.
+# Raw-scale prior and packer ----
+#Defines prior distributions and proposal variances for raw-scale fitting.
 
 raw_prior <- monty::monty_dsl(
   {
@@ -547,11 +507,9 @@ raw_proposal <- c(
   E0 = 400
 )
 
-# -----------------------------------------------------------------------------
-# 21. Raw-scale deterministic fit
-# -----------------------------------------------------------------------------
-# Runs pMCMC with deterministic filter on raw parameter scale using synthetic
-# data.
+# Raw-scale deterministic fit ----
+#Runs pMCMC with deterministic filter on raw parameter scale using synthetic
+#data.
 
 raw_fit <- chlaa_fit_pmcmc(
   data = fit_data_synthetic,
@@ -569,10 +527,8 @@ raw_fit <- chlaa_fit_pmcmc(
   deterministic = TRUE
 )
 
-# -----------------------------------------------------------------------------
-# 22. Raw-scale diagnostics
-# -----------------------------------------------------------------------------
-# Trace plots showing poor mixing and low ESS values on raw scale.
+# Raw-scale diagnostics ----
+#Trace plots showing poor mixing and low ESS values on raw scale.
 
 acceptance_summary(raw_fit, "raw deterministic", burnin = 0.25)
 ess_summary(raw_fit, "raw deterministic", burnin = 0.25)
@@ -591,10 +547,8 @@ ggsave(
   plot = p_raw_trace, width = 12, height = 8, dpi = 300
 )
 
-# -----------------------------------------------------------------------------
-# 23. Raw-scale parameter pairs plot
-# -----------------------------------------------------------------------------
-# Scatter plot matrix of raw-scale posterior with truth overlaid.
+# Raw-scale parameter pairs plot ----
+#Scatter plot matrix of raw-scale posterior with truth overlaid.
 
 p_raw_pairs <- chlaa_plot_parameter_pairs(
   raw_fit,
@@ -611,16 +565,14 @@ ggsave(
   plot = p_raw_pairs, width = 10, height = 10, dpi = 300
 )
 
-# -----------------------------------------------------------------------------
-# 24. Transformed parameterization
-# -----------------------------------------------------------------------------
-# Implements log and logit transformations to improve parameter exploration
-# geometry, with automatic back-transformation.
-# log_trans_prob for a positive transmission probability;
-# logit_reporting_rate for a probability bounded by zero and one;
-# log_obs_size for a positive overdispersion parameter;
-# log_E0 for a positive initial condition.
-# The sampler moves on this transformed scale, but the plots below use the natural scale by default.
+# Transformed parameterization ----
+#Implements log and logit transformations to improve parameter exploration
+#geometry, with automatic back-transformation.
+#log_trans_prob for a positive transmission probability;
+#logit_reporting_rate for a probability bounded by zero and one;
+#log_obs_size for a positive overdispersion parameter;
+#log_E0 for a positive initial condition.
+#The sampler moves on this transformed scale, but the plots below use the natural scale by default.
 
 fit_names <- c(
   "log_trans_prob",
@@ -631,15 +583,15 @@ fit_names <- c(
 
 fit_prior <- monty::monty_dsl(
   {
-    log_trans_prob ~ Uniform(-9.21034, -4.60517) # log(1e-4) to log(1e-2)
-    logit_reporting_rate ~ Uniform(-2.751535, -0.847298) # qlogis(c(0.06, 0.30))
+    log_trans_prob ~ Uniform(-9.21034, -4.60517) #log(1e-4) to log(1e-2)
+    logit_reporting_rate ~ Uniform(-2.751535, -0.847298) #qlogis(c(0.06, 0.30))
     log_obs_size ~ Uniform(0, 5.703782)
     log_E0 ~ Uniform(2.302585, 6.684612)
   },
   gradient = FALSE
 )
 
-# Freeze-reporting_rate prior (3 params, for pilot/exploratory stage)
+#Freeze-reporting_rate prior (3 params, for pilot/exploratory stage)
 fit_prior_freeze <- monty::monty_dsl(
   {
     log_trans_prob ~ Uniform(-9.21034, -4.60517)
@@ -697,14 +649,12 @@ synthetic_starts <- list(
   make_start(trans_prob = 1.2e-3, reporting_rate = 0.15, obs_size = 45, E0 = 120)
 )
 
-# -----------------------------------------------------------------------------
-# 25. Synthetic pilot run
-# -----------------------------------------------------------------------------
-# First transformed-scale fit with simple diagonal proposal to learn
-# covariance structure. The transformed workflow begins with a deterministic pilot.
-# The proposal is diagonal and deliberately simple; it only needs to move enough for us to learn the covariance structure.
-# The pilot acceptance rates should not be interpreted as final diagnostics. They tell us whether the simple proposal
-# was able to move enough to estimate a useful covariance.
+# Synthetic pilot run ----
+#First transformed-scale fit with simple diagonal proposal to learn
+#covariance structure. The transformed workflow begins with a deterministic pilot.
+#The proposal is diagonal and deliberately simple; it only needs to move enough for us to learn the covariance structure.
+#The pilot acceptance rates should not be interpreted as final diagnostics. They tell us whether the simple proposal
+#was able to move enough to estimate a useful covariance.
 
 pilot_proposal <- c(
   log_trans_prob = 0.02,
@@ -731,13 +681,11 @@ synthetic_pilot <- chlaa_fit_pmcmc(
 
 acceptance_summary(synthetic_pilot, "synthetic pilot")
 
-# -----------------------------------------------------------------------------
-# 26. Learned proposal covariance
-# -----------------------------------------------------------------------------
-# Extracts correlation structure showing strong negative correlation between
-# transmission and reporting parameters.
-# The learned covariance is full rather than diagonal.
-# Off-diagonal correlations are useful here because trans_prob, reporting_rate, and E0 can compensate for one another.
+# Learned proposal covariance ----
+#Extracts correlation structure showing strong negative correlation between
+#transmission and reporting parameters.
+#The learned covariance is full rather than diagonal.
+#Off-diagonal correlations are useful here because trans_prob, reporting_rate, and E0 can compensate for one another.
 
 synthetic_det_proposal <- proposal_from_fit(
   synthetic_pilot,
@@ -747,13 +695,11 @@ synthetic_det_proposal <- proposal_from_fit(
 
 round(cov2cor(synthetic_det_proposal), 2)
 
-# -----------------------------------------------------------------------------
-# 27. Synthetic deterministic main run
-# -----------------------------------------------------------------------------
-# Extended deterministic run with learned proposal, showing improved
-# diagnostics and parameter recovery.
-# With the learned covariance, the deterministic chains can be run longer.
-# The main visual check is that chains from different starts overlap after burn-in.
+# Synthetic deterministic main run ----
+#Extended deterministic run with learned proposal, showing improved
+#diagnostics and parameter recovery.
+#With the learned covariance, the deterministic chains can be run longer.
+#The main visual check is that chains from different starts overlap after burn-in.
 
 synthetic_det <- chlaa_fit_pmcmc(
   data = fit_data_synthetic,
@@ -781,13 +727,11 @@ parameter_summary(
   truth = truth_vec
 )
 
-# -----------------------------------------------------------------------------
-# 28. Synthetic deterministic trace and pairs plots
-# -----------------------------------------------------------------------------
-# Trace, marginal distribution, and bivariate scatter plots verifying
-# posterior geometry against synthetic truth.
-# The deterministic fit is also useful for diagnosing posterior geometry.
-# The dashed lines mark the synthetic truth.
+# Synthetic deterministic trace and pairs plots ----
+#Trace, marginal distribution, and bivariate scatter plots verifying
+#posterior geometry against synthetic truth.
+#The deterministic fit is also useful for diagnosing posterior geometry.
+#The dashed lines mark the synthetic truth.
 
 
 p_synth_det_trace <- chlaa_plot_trace(
@@ -832,12 +776,10 @@ ggsave(
   plot = p_synth_det_pairs, width = 10, height = 10, dpi = 300
 )
 
-# -----------------------------------------------------------------------------
-# 29. Synthetic particle filter starting points
-# -----------------------------------------------------------------------------
-# The particle-filter run uses the deterministic posterior medians as starting points.
-# We keep the covariance direction learned by the deterministic fit and shrink the scale
-# because the particle likelihood is noisy.
+# Synthetic particle filter starting points ----
+#The particle-filter run uses the deterministic posterior medians as starting points.
+#We keep the covariance direction learned by the deterministic fit and shrink the scale
+#because the particle likelihood is noisy.
 
 synthetic_particle_starts <- synthetic_starts
 
@@ -847,16 +789,14 @@ synthetic_particle_proposal <- proposal_from_fit(
   scale = 0.8
 )
 
-# -----------------------------------------------------------------------------
-# 30. Synthetic particle filter run
-# -----------------------------------------------------------------------------
-# Final stochastic fit with 50 particles per likelihood evaluation across
-# three chains.
-# For the particle chains, acceptance is typically lower than the deterministic pilot
-# because each likelihood evaluation is noisy.
-# ESS and R-hat are complementary. ESS asks how many independent samples the autocorrelated chain is worth;
-# R-hat asks whether the different chains agree.
-# The synthetic parameters are recovered if the posterior intervals cover the true values and the posterior mass is concentrated near them.
+# Synthetic particle filter run ----
+#Final stochastic fit with 50 particles per likelihood evaluation across
+#three chains.
+#For the particle chains, acceptance is typically lower than the deterministic pilot
+#because each likelihood evaluation is noisy.
+#ESS and R-hat are complementary. ESS asks how many independent samples the autocorrelated chain is worth;
+#R-hat asks whether the different chains agree.
+#The synthetic parameters are recovered if the posterior intervals cover the true values and the posterior mass is concentrated near them.
 
 synthetic_particle <- chlaa_fit_pmcmc(
   data = fit_data_synthetic,
@@ -884,11 +824,9 @@ parameter_summary(
   truth = truth_vec
 )
 
-# -----------------------------------------------------------------------------
-# 31. Synthetic particle filter diagnostics and plots
-# -----------------------------------------------------------------------------
-# Trace, distribution, and pair plots for particle chains; posterior
-# predictive fit with 95% and 50% credible intervals.
+# Synthetic particle filter diagnostics and plots ----
+#Trace, distribution, and pair plots for particle chains; posterior
+#predictive fit with 95% and 50% credible intervals.
 
 p_synth_part_trace <- chlaa_plot_trace(
   synthetic_particle,
@@ -945,11 +883,9 @@ ggsave(
   plot = p_synth_part_fit, width = 10, height = 6, dpi = 300
 )
 
-# -----------------------------------------------------------------------------
-# 32. Real data starting points
-# -----------------------------------------------------------------------------
-# Defines three dispersed starting points for real Kirotshe data fitting.
-# The pilot stage freezes reporting_rate to let other parameters settle first.
+# Real data starting points ----
+#Defines three dispersed starting points for real Kirotshe data fitting.
+#The pilot stage freezes reporting_rate to let other parameters settle first.
 
 real_starts_freeze <- list(
   make_start(trans_prob = 1e-3, reporting_rate = 0.15, obs_size = 30, E0 = 80,
@@ -966,11 +902,9 @@ real_starts_full <- list(
   make_start(trans_prob = 5e-3, reporting_rate = 0.20, obs_size = 100, E0 = 200)
 )
 
-# -----------------------------------------------------------------------------
-# 33. Real data pilot (freeze reporting_rate)
-# -----------------------------------------------------------------------------
-# Pilot run with reporting_rate frozen to let trans_prob, obs_size, and E0
-# settle before unfreezing all four parameters.
+# Real data pilot (freeze reporting_rate) ----
+#Pilot run with reporting_rate frozen to let trans_prob, obs_size, and E0
+#settle before unfreezing all four parameters.
 
 freeze_pilot_proposal <- c(
   log_trans_prob = 0.02,
@@ -996,26 +930,24 @@ real_pilot <- chlaa_fit_pmcmc(
 
 acceptance_summary(real_pilot, "real pilot (freeze)")
 
-# Learn covariance from frozen pilot and expand 3x3 → 4x4
+#Learn covariance from frozen pilot and expand 3x3 -> 4x4
 pilot_cov3 <- proposal_from_fit(real_pilot, burnin = 0.25, scale = 1)
 real_det_proposal <- matrix(0, 4, 4)
-idx_map <- c(1L, 3L, 4L) # log_trans_prob, log_obs_size, log_E0 → positions in full
+idx_map <- c(1L, 3L, 4L) #log_trans_prob, log_obs_size, log_E0 -> positions in full
 real_det_proposal[idx_map, idx_map] <- pilot_cov3
-real_det_proposal[2, 2] <- 0.05 * (2.38^2 / 4) # logit_reporting_rate default
+real_det_proposal[2, 2] <- 0.05 * (2.38^2 / 4) #logit_reporting_rate default
 diag(real_det_proposal) <- pmax(diag(real_det_proposal), 1e-6)
 
-# Warm-start full starts from pilot medians
+#Warm-start full starts from pilot medians
 real_starts_full <- chain_median_starts(
   real_pilot,
   template_pars = real_starts_full[[1]],
   burnin = 0.25
 )
 
-# -----------------------------------------------------------------------------
-# 34. Real data deterministic run (full 4-param)
-# -----------------------------------------------------------------------------
-# Extended deterministic run on real data with all four parameters unfrozen
-# and learned proposal covariance expanded from the frozen pilot.
+# Real data deterministic run (full 4-param) ----
+#Extended deterministic run on real data with all four parameters unfrozen
+#and learned proposal covariance expanded from the frozen pilot.
 
 real_det <- chlaa_fit_pmcmc(
   data = fit_data_real,
@@ -1038,10 +970,8 @@ ess_summary(real_det, "real deterministic")
 rhat_summary(real_det, "real deterministic")
 parameter_summary(real_det, "real deterministic")
 
-# -----------------------------------------------------------------------------
-# 35. Real data deterministic plots
-# -----------------------------------------------------------------------------
-# Trace and pair plots for deterministic chains on real data.
+# Real data deterministic plots ----
+#Trace and pair plots for deterministic chains on real data.
 
 p_real_det_trace <- chlaa_plot_trace(
   real_det,
@@ -1070,11 +1000,9 @@ ggsave(
   plot = p_real_det_pairs, width = 10, height = 10, dpi = 300
 )
 
-# -----------------------------------------------------------------------------
-# 36. Real data particle filter setup
-# -----------------------------------------------------------------------------
-# Extracts posterior medians and applies larger proposal shrinkage for real
-# data's tighter posterior.
+# Real data particle filter setup ----
+#Extracts posterior medians and applies larger proposal shrinkage for real
+#data's tighter posterior.
 
 real_particle_starts <- chain_median_starts(
   real_det,
@@ -1088,10 +1016,8 @@ real_particle_proposal <- proposal_from_fit(
   scale = 0.2
 )
 
-# -----------------------------------------------------------------------------
-# 37. Real data particle filter run
-# -----------------------------------------------------------------------------
-# Final stochastic fit on real data using 50 particles.
+# Real data particle filter run ----
+#Final stochastic fit on real data using 50 particles.
 
 real_particle <- chlaa_fit_pmcmc(
   data = fit_data_real,
@@ -1114,11 +1040,9 @@ ess_summary(real_particle, "real particle")
 rhat_summary(real_particle, "real particle")
 parameter_summary(real_particle, "real particle")
 
-# -----------------------------------------------------------------------------
-# 38. Real data particle filter diagnostics and plots
-# -----------------------------------------------------------------------------
-# Trace, distribution, pair plots, and posterior predictive fit for real data
-# chains.
+# Real data particle filter diagnostics and plots ----
+#Trace, distribution, pair plots, and posterior predictive fit for real data
+#chains.
 
 p_real_part_trace <- chlaa_plot_trace(
   real_particle,
@@ -1173,11 +1097,9 @@ ggsave(
   plot = p_real_part_fit, width = 10, height = 6, dpi = 300
 )
 
-# -----------------------------------------------------------------------------
-# 39. Save fitted artifact
-# -----------------------------------------------------------------------------
-# Packages the fitted posterior and metadata for reuse in downstream scenario
-# and health economics analyses.
+# Save fitted artifact ----
+#Packages the fitted posterior and metadata for reuse in downstream scenario
+#and health economics analyses.
 
 fit_artifact <- list(
   fit = real_particle,

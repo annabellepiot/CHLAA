@@ -1,11 +1,11 @@
-# =========================================================================
-# Multi-Site Scenario Analysis for All Health Zones
-# =========================================================================
+#=========================================================================
+#Multi-Site Scenario Analysis for All Health Zones
+#=========================================================================
 #
-# This script applies the scenario workflow from 03_01_scenario_workflow.R
-# to all health zones using the fitted outputs from 01_02_fitting_all_HZs.R.
+#This script applies the scenario workflow from 03_01_scenario_workflow.R
+#to all health zones using the fitted outputs from 01_02_fitting_all_HZs.R.
 #
-# For each HZ it:
+#For each HZ it:
 #   1. Loads the pMCMC fit artifact from figures/.rds files/{hz_name}_fit.rds
 #   2. Reconstructs observed data from the IDSR dataset
 #   3. Defines three scenarios: no_intervention, aa_response, aa_response+vaccine
@@ -15,17 +15,17 @@
 #      - scenarios_{hz_name}_difference_cumulative_deaths.png
 #   6. Saves decision summary tables (RDS + CSV) per HZ
 #
-# Designed for PBS array job submission (one HZ per job) or sequential
-# interactive use. Mirrors the array job pattern of 01_02_fitting_all_HZs.R.
+#Designed for PBS array job submission (one HZ per job) or sequential
+#interactive use. Mirrors the array job pattern of 01_02_fitting_all_HZs.R.
 #
-# =========================================================================
+#=========================================================================
 
 library(chlaa)
 library(ggplot2)
 library(dplyr)
 library(tidyr)
 
-# ---- Global constants (must match 01_02 — needed by deserialized packer closures) ----
+#---- Global constants (must match 01_02 - needed by deserialized packer closures) ----
 
 H_REF <- 1.0
 POP_REF <- 516000
@@ -53,7 +53,7 @@ seed_state <- function(E0, p) {
     s
 }
 
-# ---- Setup ----
+#---- Setup ----
 
 data_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/data"
 output_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/output"
@@ -66,7 +66,7 @@ dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
 dir.create(rds_dir, showWarnings = FALSE, recursive = TRUE)
 dir.create(tables_dir, showWarnings = FALSE, recursive = TRUE)
 
-# ---- Core Scenario Function ----
+#---- Core Scenario Function ----
 
 run_scenarios_hz <- function(hz_name,
                              trigger_threshold = if (hz_name %in% c("kirotshe", "nyiragongo", "goma")) 174 else 63,
@@ -81,7 +81,7 @@ run_scenarios_hz <- function(hz_name,
     if (verbose) cat("Scenario analysis for:", hz_name, "\n")
     if (verbose) cat("========================================\n")
 
-    # ---- 1. Load fit artifact ----
+    #---- 1. Load fit artifact ----
 
     fit_path <- file.path(rds_dir, sprintf("%s_fit.rds", hz_name))
     if (!file.exists(fit_path)) {
@@ -96,7 +96,7 @@ run_scenarios_hz <- function(hz_name,
 
     if (verbose) cat("Outbreak window:", as.character(outbreak_start), "to", as.character(outbreak_end), "\n")
 
-    # ---- 2. Reconstruct observed data ----
+    #---- 2. Reconstruct observed data ----
 
     idsr <- read.csv(file.path(data_dir, "IDSR_dataset.csv"))
 
@@ -117,7 +117,7 @@ run_scenarios_hz <- function(hz_name,
     if (verbose) cat("Outbreak weeks:", nrow(observed), "\n")
     if (verbose) cat("Total cases:", sum(observed$cases), "\n")
 
-    # ---- 3. Update parameters from posterior ----
+    #---- 3. Update parameters from posterior ----
 
     pars_fit <- chlaa_update_from_fit(
         fit = fit,
@@ -126,22 +126,22 @@ run_scenarios_hz <- function(hz_name,
         burnin = burnin
     )
 
-    # ---- 4. Define scenario parameters ----
+    #---- 4. Define scenario parameters ----
 
     horizon <- max(observed$time) + 182
     scenario_time <- seq(7, horizon, by = 7)
     response_end <- horizon + 1
     vaccine_doses <- floor(vax_coverage * pars_fit$N)
 
-    # Find trigger time: first week where the rolling 3-consecutive-week
-    # case TOTAL (not a per-week rate) reaches trigger_threshold.
-    # stats::filter(..., sides = 1) is namespace-qualified because
-    # library(dplyr) masks filter() in this file. sides = 1 makes each
-    # element the sum of itself and the two preceding weeks (a trailing
-    # 3-week window), giving NA for the first two weeks where a full
-    # 3-week history doesn't yet exist. trigger_time therefore lands on
-    # the 3rd (most recent) week of the first qualifying window - the
-    # earliest point the running total can actually be confirmed.
+    #Find trigger time: first week where the rolling 3-consecutive-week
+    #case TOTAL (not a per-week rate) reaches trigger_threshold.
+    #stats::filter(..., sides = 1) is namespace-qualified because
+    #library(dplyr) masks filter() in this file. sides = 1 makes each
+    #element the sum of itself and the two preceding weeks (a trailing
+    #3-week window), giving NA for the first two weeks where a full
+    #3-week history doesn't yet exist. trigger_time therefore lands on
+    #the 3rd (most recent) week of the first qualifying window - the
+    #earliest point the running total can actually be confirmed.
     roll3_cases <- as.numeric(stats::filter(observed$cases, rep(1, 3), method = "convolution", sides = 1))
     trigger_weeks <- observed$time[!is.na(roll3_cases) & roll3_cases >= trigger_threshold]
 
@@ -156,7 +156,7 @@ run_scenarios_hz <- function(hz_name,
         if (verbose) cat("Trigger time:", trigger_time, "(day)\n")
     }
 
-    # ---- 5. Build vaccination schedule helper ----
+    #---- 5. Build vaccination schedule helper ----
 
     make_scenario_vax_schedule <- function(total_doses, start_day, end_day) {
         n_days <- max(end_day - start_day, 1L)
@@ -174,7 +174,7 @@ run_scenarios_hz <- function(hz_name,
         )
     }
 
-    # Empty vaccination schedule arrays
+    #Empty vaccination schedule arrays
     empty_vax <- list(
         vax1_schedule_time = c(0L, 1L),
         vax1_schedule_doses = c(0, 0),
@@ -184,9 +184,9 @@ run_scenarios_hz <- function(hz_name,
         n_vax2_schedule = 2L
     )
 
-    # ---- 6. Define scenarios ----
+    #---- 6. Define scenarios ----
 
-    # No intervention counterfactual
+    #No intervention counterfactual
     no_intervention <- c(list(
         chlor_start = 0, chlor_end = 0, chlor_effect = 0,
         hyg_start = 0, hyg_end = 0, hyg_effect = 0,
@@ -203,7 +203,7 @@ run_scenarios_hz <- function(hz_name,
     )
 
     if (!is.na(trigger_time)) {
-        # Anticipatory-action response: WASH + treatment at trigger
+        #Anticipatory-action response: WASH + treatment at trigger
         aa_response <- c(list(
             chlor_start = trigger_time, chlor_end = response_end,
             chlor_effect = pars_fit$chlor_effect,
@@ -226,7 +226,7 @@ run_scenarios_hz <- function(hz_name,
         ))
 
         if (include_vax_scenario) {
-            # Anticipatory-action + vaccination campaign
+            #Anticipatory-action + vaccination campaign
             vax1_start_day <- trigger_time + 14
             vax1_end_day <- vax1_start_day + campaign_days
             vax_sched <- make_scenario_vax_schedule(
@@ -248,7 +248,7 @@ run_scenarios_hz <- function(hz_name,
         cat("Scenarios:", paste(vapply(scenarios, `[[`, character(1), "name"), collapse = ", "), "\n")
     }
 
-    # ---- 7. Posterior scenario forecasts ----
+    #---- 7. Posterior scenario forecasts ----
 
     if (verbose) cat("\n=== POSTERIOR SCENARIO FORECASTS ===\n")
 
@@ -267,9 +267,9 @@ run_scenarios_hz <- function(hz_name,
         dt = 0.25
     )
 
-    # ---- 8. Scenario figures ----
+    #---- 8. Scenario figures ----
 
-    # Figure 1: Absolute scenario forecasts (weekly cases)
+    #Figure 1: Absolute scenario forecasts (weekly cases)
     p_absolute <- chlaa_plot_scenario_forecasts(
         scenario_fc,
         var = "cases",
@@ -285,7 +285,7 @@ run_scenarios_hz <- function(hz_name,
         plot = p_absolute, width = 12, height = 7, dpi = 300
     )
 
-    # Figure 2: Difference in cumulative deaths relative to baseline
+    #Figure 2: Difference in cumulative deaths relative to baseline
     p_diff_deaths <- chlaa_plot_scenario_forecasts(
         scenario_fc,
         var = "cum_deaths",
@@ -302,7 +302,7 @@ run_scenarios_hz <- function(hz_name,
 
     if (verbose) cat("Figures saved.\n")
 
-    # ---- 9. Decision summary ----
+    #---- 9. Decision summary ----
 
     if (verbose) cat("\n=== DECISION SUMMARY ===\n")
 
@@ -335,9 +335,9 @@ run_scenarios_hz <- function(hz_name,
         print(scenario_comparison)
     }
 
-    # ---- 10. Save outputs ----
+    #---- 10. Save outputs ----
 
-    # RDS
+    #RDS
     scenario_output <- list(
         hz_name = hz_name,
         scenario_summary = scenario_summary,
@@ -353,7 +353,7 @@ run_scenarios_hz <- function(hz_name,
     )
     saveRDS(scenario_output, file.path(rds_dir, sprintf("%s_scenarios.rds", hz_name)))
 
-    # CSV
+    #CSV
     summary_df <- as.data.frame(scenario_summary)
     summary_df$hz <- hz_name
     write.csv(summary_df,
@@ -377,12 +377,12 @@ run_scenarios_hz <- function(hz_name,
     return(scenario_output)
 }
 
-# ---- Main Execution ----
+#---- Main Execution ----
 
 args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) > 0) {
-    # Array job mode: run single HZ specified by argument
+    #Array job mode: run single HZ specified by argument
     hz_to_run <- args[1]
 
     cat("\n", rep("=", 60), "\n", sep = "")
@@ -412,15 +412,15 @@ if (length(args) > 0) {
         quit(status = 1)
     }
 } else {
-    # Interactive mode: run all HZs sequentially
+    #Interactive mode: run all HZs sequentially
     cat("No HZ specified. Running in sequential mode for all HZs.\n")
     cat("For production use, submit as array job with HZ name as argument.\n\n")
 
-    # Discover which HZs have completed fit artifacts (saved in rds_dir by 01_02)
+    #Discover which HZs have completed fit artifacts (saved in rds_dir by 01_02)
     all_fits <- list.files(rds_dir, pattern = "_fit\\.rds$", full.names = FALSE)
     all_hzs <- sort(gsub("_fit\\.rds$", "", all_fits))
 
-    # Exclude any failed fits
+    #Exclude any failed fits
     failed_fits <- list.files(rds_dir, pattern = "_FAILED\\.rds$", full.names = FALSE)
     failed_hzs <- gsub("_FAILED\\.rds$", "", failed_fits)
     all_hzs <- setdiff(all_hzs, failed_hzs)
@@ -445,7 +445,7 @@ if (length(args) > 0) {
         )
     }
 
-    # ---- Summary ----
+    #---- Summary ----
 
     cat("\n", rep("=", 60), "\n", sep = "")
     cat("SCENARIO ANALYSIS SUMMARY\n")
@@ -463,7 +463,7 @@ if (length(args) > 0) {
         cat("Failed HZs:", paste(failed_hzs, collapse = ", "), "\n")
     }
 
-    # Combine all summaries into a single CSV
+    #Combine all summaries into a single CSV
     if (n_success > 0) {
         all_summaries <- list.files(tables_dir, pattern = "_scenario_summary\\.csv$", full.names = TRUE)
         if (length(all_summaries) > 0) {
@@ -487,38 +487,38 @@ if (length(args) > 0) {
     }
 }
 
-# =========================================================================
-# Composite scenario figure across all health zones
-# =========================================================================
+#=========================================================================
+#Composite scenario figure across all health zones
+#=========================================================================
 #
-# One figure, 3 scenario rows x 2 outcome columns (Cases | Deaths):
+#One figure, 3 scenario rows x 2 outcome columns (Cases | Deaths):
 #   row 1  AA response
 #   row 2  AA response + vaccination
 #   row 3  No interventions
-# Each facet holds one horizontal box+whisker (median, 50% and 95%
-# uncertainty intervals) per health zone, showing excess cumulative
-# cases/deaths relative to the fitted response (the "difference" scenario
-# type is scenario-minus-baseline on paired posterior draws, so the fitted
-# response is identically 0 and is shown as the dashed reference line)
-# at ~365 days since the start of the modelled outbreak. Style mirrors
-# build_excess_plot() in 02_01_scenario_workflow.R, rotated into a
-# forest-plot layout (one row per HZ) like fitted_r0_density.png in
-# 01_05_collect_fitted_parameters.R.
+#Each facet holds one horizontal box+whisker (median, 50% and 95%
+#uncertainty intervals) per health zone, showing excess cumulative
+#cases/deaths relative to the fitted response (the "difference" scenario
+#type is scenario-minus-baseline on paired posterior draws, so the fitted
+#response is identically 0 and is shown as the dashed reference line)
+#at ~365 days since the start of the modelled outbreak. Style mirrors
+#build_excess_plot() in 02_01_scenario_workflow.R, rotated into a
+#forest-plot layout (one row per HZ) like fitted_r0_density.png in
+#01_05_collect_fitted_parameters.R.
 #
-# Health zones that never crossed the response trigger (and therefore
-# have no aa_response / aa_response_plus_vaccine scenario, only
-# no_interventions) are excluded from the whole figure so every facet
-# covers the same set of zones.
+#Health zones that never crossed the response trigger (and therefore
+#have no aa_response / aa_response_plus_vaccine scenario, only
+#no_interventions) are excluded from the whole figure so every facet
+#covers the same set of zones.
 
 cat("\n", rep("=", 60), "\n", sep = "")
 cat("Building composite all-HZ scenario figure\n")
 cat(rep("=", 60), "\n\n", sep = "")
 
-# Display-friendly health zone names (e.g. "ngiri_ngiri" -> "Ngiri Ngiri",
-# "maluku_i" -> "Maluku I"). Capitalises every word, unlike
-# tools::toTitleCase() which leaves single-letter words like "i" lowercase.
-# Shared by both the composite scenario figure and the intervention
-# contribution figures further below.
+#Display-friendly health zone names (e.g. "ngiri_ngiri" -> "Ngiri Ngiri",
+#"maluku_i" -> "Maluku I"). Capitalises every word, unlike
+#tools::toTitleCase() which leaves single-letter words like "i" lowercase.
+#Shared by both the composite scenario figure and the intervention
+#contribution figures further below.
 hz_label <- function(x) {
     x <- gsub("_", " ", x)
     gsub("(?<=^|\\s)([a-z])", "\\U\\1", x, perl = TRUE)
@@ -533,8 +533,8 @@ if (length(scenario_rds_files) == 0) {
     scenario_objs <- lapply(scenario_rds_files, readRDS)
     names(scenario_objs) <- vapply(scenario_objs, `[[`, character(1), "hz_name")
 
-    # Keep only HZs where all three scenarios were defined (i.e. the
-    # response trigger was reached, so aa_response/+vaccine exist)
+    #Keep only HZs where all three scenarios were defined (i.e. the
+    #response trigger was reached, so aa_response/+vaccine exist)
     full_scenario_set <- c("no_interventions", "aa_response", "aa_response_plus_vaccine")
     keep_hz <- names(scenario_objs)[vapply(scenario_objs, function(x) {
         all(full_scenario_set %in% x$scenarios_defined)
@@ -550,9 +550,9 @@ if (length(scenario_rds_files) == 0) {
     if (length(keep_hz) == 0) {
         cat("No HZs have a full scenario set - skipping composite figure.\n")
     } else {
-        # For each retained HZ, snap to the scenario_time grid point closest
-        # to 365 days since outbreak start (grids are weekly and horizons
-        # vary by HZ, so the exact snapped day can differ slightly by HZ)
+        #For each retained HZ, snap to the scenario_time grid point closest
+        #to 365 days since outbreak start (grids are weekly and horizons
+        #vary by HZ, so the exact snapped day can differ slightly by HZ)
         target_day <- 365
 
         all_fc <- lapply(keep_hz, function(hz) {
@@ -576,7 +576,7 @@ if (length(scenario_rds_files) == 0) {
             cat(sprintf("  %-14s day %s\n", snap_report$hz[i], snap_report$snap_time[i]))
         }
 
-        # ---- Health zone ordering: by no-intervention excess cases,
+        #---- Health zone ordering: by no-intervention excess cases,
         #      reused across every facet for comparability. Ascending order
         #      so the largest excess ends up plotted at the top. ----
         hz_rank <- composite_dat %>%
@@ -584,14 +584,14 @@ if (length(scenario_rds_files) == 0) {
             arrange(q0p5) %>%
             pull(hz)
 
-        # Facet rows are one-per-HZ; facet_grid places the FIRST factor level in
-        # the top row, so reverse the ascending excess ranking to keep the
-        # largest-excess zone at the top (consistent with the Shapley figures).
+        #Facet rows are one-per-HZ; facet_grid places the FIRST factor level in
+        #the top row, so reverse the ascending excess ranking to keep the
+        #largest-excess zone at the top (consistent with the Shapley figures).
         hz_levels_facet <- rev(hz_rank)
         composite_dat <- composite_dat %>%
             mutate(hz = factor(hz, levels = hz_levels_facet))
 
-        # ---- Facet ordering/labels and scenario colours (matches
+        #---- Facet ordering/labels and scenario colours (matches
         #      02_01_scenario_workflow.R's palette) ----
         scenario_order_all <- c("aa_response", "aa_response_plus_vaccine", "no_interventions")
         scenario_facet_labels <- c(
@@ -613,10 +613,10 @@ if (length(scenario_rds_files) == 0) {
                 variable = factor(variable, levels = c("cum_symptoms", "cum_deaths"))
             )
 
-        # Numeric label: "median (lower to upper)", positioned just beyond
-        # the whisker end on whichever side the bar points (mirrors
-        # build_excess_plot()'s num_label/label_y/label_vjust logic, using
-        # hjust instead of vjust since the boxes are now horizontal)
+        #Numeric label: "median (lower to upper)", positioned just beyond
+        #the whisker end on whichever side the bar points (mirrors
+        #build_excess_plot()'s num_label/label_y/label_vjust logic, using
+        #hjust instead of vjust since the boxes are now horizontal)
         composite_dat <- composite_dat %>%
             mutate(
                 num_label   = paste0(round(q0p5), " (", round(q0p025), " to ", round(q0p975), ")"),
@@ -624,11 +624,11 @@ if (length(scenario_rds_files) == 0) {
                 label_hjust = ifelse(q0p5 >= 0, -0.08, 1.08)
             )
 
-        # Pad each variable's (column's) x-range so the numeric labels have
-        # room to sit beyond the whiskers without being clipped by the
-        # panel edge. facet_grid(scales = "free_x") shares one x-scale down
-        # each column, and unions in any data mapped to x within that
-        # column - including these invisible padding points.
+        #Pad each variable's (column's) x-range so the numeric labels have
+        #room to sit beyond the whiskers without being clipped by the
+        #panel edge. facet_grid(scales = "free_x") shares one x-scale down
+        #each column, and unions in any data mapped to x within that
+        #column - including these invisible padding points.
         x_pad <- composite_dat %>%
             group_by(variable) %>%
             summarise(
@@ -644,10 +644,10 @@ if (length(scenario_rds_files) == 0) {
                 hz = factor(hz_levels_facet[1], levels = hz_levels_facet)
             )
 
-        # Thin, purely decorative shaded band around the fitted-response baseline.
-        # The fitted response is normalised to 0, so this is a style cue (a
-        # line-with-shaded-background like the forecast figures), NOT a credible
-        # interval. Half-width is a small fraction of each column's data range.
+        #Thin, purely decorative shaded band around the fitted-response baseline.
+        #The fitted response is normalised to 0, so this is a style cue (a
+        #line-with-shaded-background like the forecast figures), NOT a credible
+        #interval. Half-width is a small fraction of each column's data range.
         band_df <- composite_dat %>%
             group_by(variable) %>%
             summarise(half = 0.014 * diff(range(c(q0p025, q0p975), na.rm = TRUE)),
@@ -663,8 +663,8 @@ if (length(scenario_rds_files) == 0) {
             NULL
         }
 
-        # Legend key for the fitted response: a dashed line on a light shaded
-        # band, echoing the line+ribbon look of the forecast figures.
+        #Legend key for the fitted response: a dashed line on a light shaded
+        #band, echoing the line+ribbon look of the forecast figures.
         draw_key_fitted_ref <- function(data, params, size) {
             grid::grobTree(
                 grid::rectGrob(gp = grid::gpar(fill = scales::alpha(data$colour, 0.18), col = NA)),
@@ -674,15 +674,15 @@ if (length(scenario_rds_files) == 0) {
         }
 
         p_composite <- ggplot(composite_dat, aes(y = scenario)) +
-            # Thin decorative shaded band behind the dashed fitted-response line
+            #Thin decorative shaded band behind the dashed fitted-response line
             geom_rect(
                 data = band_df, aes(xmin = xmin, xmax = xmax),
                 ymin = -Inf, ymax = Inf, inherit.aes = FALSE,
                 fill = baseline_colour_all, alpha = 0.18
             ) +
-            # Dashed baseline = fitted response; colour is mapped so it shows up
-            # as its own legend entry (line + shaded band, no CI - the fitted
-            # response is normalised to zero).
+            #Dashed baseline = fitted response; colour is mapped so it shows up
+            #as its own legend entry (line + shaded band, no CI - the fitted
+            #response is normalised to zero).
             geom_vline(
                 data = data.frame(xintercept = 0, ref = "Fitted response"),
                 aes(xintercept = xintercept, colour = ref),
@@ -702,9 +702,9 @@ if (length(scenario_rds_files) == 0) {
                 aes(x = label_x, label = num_label, hjust = label_hjust),
                 size = 2.3, family = "Helvetica", colour = "black"
             ) +
-            # Rows = one health zone each; columns = Cases | Deaths. Each panel
-            # holds the three scenario box-and-whiskers, coloured by scenario
-            # (legend below), with the dashed line marking the fitted response.
+            #Rows = one health zone each; columns = Cases | Deaths. Each panel
+            #holds the three scenario box-and-whiskers, coloured by scenario
+            #(legend below), with the dashed line marking the fitted response.
             facet_grid(
                 hz ~ variable,
                 labeller = labeller(hz = as_labeller(hz_label), variable = variable_facet_labels),
@@ -756,32 +756,32 @@ if (length(scenario_rds_files) == 0) {
     }
 }
 
-# =========================================================================
-# Relative contribution of individual interventions to the fitted response
-# =========================================================================
+#=========================================================================
+#Relative contribution of individual interventions to the fitted response
+#=========================================================================
 #
-# "Add-one-in" design: for each of 6 intervention types (CTC, ORC, CATI,
-# Hygiene, Chlorination, Vaccination) simulate a scenario that starts from
-# a fully zeroed-out (no_interventions) parameter set and restores ONLY
-# that one intervention's real historical timing/effect - read straight
-# off the fit's base_pars, i.e. the true fitted schedule (e.g. the actual
-# daily vaccine dose array, not a synthetic one). Each is compared back to
-# that SAME zeroed no_interventions baseline, sharing posterior draws in
-# one chlaa_forecast_scenarios_from_fit() call, so the resulting
-# cumulative cases/deaths difference is a statistically valid isolated
-# effect for that lever alone.
+#"Add-one-in" design: for each of 6 intervention types (CTC, ORC, CATI,
+#Hygiene, Chlorination, Vaccination) simulate a scenario that starts from
+#a fully zeroed-out (no_interventions) parameter set and restores ONLY
+#that one intervention's real historical timing/effect - read straight
+#off the fit's base_pars, i.e. the true fitted schedule (e.g. the actual
+#daily vaccine dose array, not a synthetic one). Each is compared back to
+#that SAME zeroed no_interventions baseline, sharing posterior draws in
+#one chlaa_forecast_scenarios_from_fit() call, so the resulting
+#cumulative cases/deaths difference is a statistically valid isolated
+#effect for that lever alone.
 #
-# Each lever's isolated cases/deaths averted (relative to no_interventions)
-# is expressed as a % of the TOTAL cases/deaths averted by the full
-# historical response - the no_interventions-vs-fitted_response difference
-# already computed and saved in <hz>_scenarios.rds - i.e. "what share of
-# the total historical intervention effect can be attributed to this one
-# lever". Because levers are evaluated one at a time from a common zero
-# baseline (not by sequentially removing them from the full response),
-# their shares can overlap and are NOT expected to sum to 100%.
+#Each lever's isolated cases/deaths averted (relative to no_interventions)
+#is expressed as a % of the TOTAL cases/deaths averted by the full
+#historical response - the no_interventions-vs-fitted_response difference
+#already computed and saved in <hz>_scenarios.rds - i.e. "what share of
+#the total historical intervention effect can be attributed to this one
+#lever". Because levers are evaluated one at a time from a common zero
+#baseline (not by sequentially removing them from the full response),
+#their shares can overlap and are NOT expected to sum to 100%.
 #
-# Vaccination 2nd dose (never used in any zone) and Latrines (used in only
-# 1/12 zones) are excluded - too sparse to compare meaningfully across HZs.
+#Vaccination 2nd dose (never used in any zone) and Latrines (used in only
+#1/12 zones) are excluded - too sparse to compare meaningfully across HZs.
 
 cat("\n", rep("=", 60), "\n", sep = "")
 cat("Computing individual intervention contributions\n")
@@ -806,10 +806,10 @@ intervention_labels <- c(
 )
 intervention_order <- names(intervention_defs)
 
-# Per-lever colours - kept in sync with 01_04_Plot_model_fits_and_interventions.R
-# and 05_Shapley_analysis.R (ORC = gold, Latrines = coral after the swap). No
-# Latrines lever appears here, so that entry is simply unused; the six that do
-# appear map by name onto the model-fits / Shapley-forest palette.
+#Per-lever colours - kept in sync with 01_04_Plot_model_fits_and_interventions.R
+#and 05_Shapley_analysis.R (ORC = gold, Latrines = coral after the swap). No
+#Latrines lever appears here, so that entry is simply unused; the six that do
+#appear map by name onto the model-fits / Shapley-forest palette.
 intervention_colours <- c(
     "CTC"          = "#00BFC4",
     "ORC"          = "#FFD700",
@@ -820,8 +820,8 @@ intervention_colours <- c(
     "Vaccination"  = "#FF8C00"
 )
 
-# Fully zeroed intervention parameter set - the "no_interventions" baseline
-# used as the reference point for every add-one-in scenario
+#Fully zeroed intervention parameter set - the "no_interventions" baseline
+#used as the reference point for every add-one-in scenario
 zero_intervention_pars <- function(base_pars) {
     modifyList(base_pars, list(
         chlor_start = 0, chlor_end = 0, chlor_effect = 0,
@@ -837,17 +837,17 @@ zero_intervention_pars <- function(base_pars) {
     ))
 }
 
-# Computes (and caches to rds_dir) the 6 add-one-in scenario forecasts for
-# one HZ. Set force = TRUE to recompute even if a cached file exists.
+#Computes (and caches to rds_dir) the 6 add-one-in scenario forecasts for
+#one HZ. Set force = TRUE to recompute even if a cached file exists.
 compute_intervention_contributions_hz <- function(hz_name, n_draws = 60, burnin = 0.25,
                                                    seed = 21, verbose = TRUE, force = FALSE) {
     out_path <- file.path(rds_dir, sprintf("%s_intervention_contributions.rds", hz_name))
     fit_path <- file.path(rds_dir, sprintf("%s_fit.rds", hz_name))
-    # A cache older than the fit it was built from is stale (e.g. after a
-    # refit) and must not be served - it would silently keep reporting
-    # pre-refit numbers (this is exactly what caused vaccination to show 0%
-    # here after the vax1_start/vax1_end/vax1_total_doses fitting bug was
-    # fixed and the model refit, until this check was added).
+    #A cache older than the fit it was built from is stale (e.g. after a
+    #refit) and must not be served - it would silently keep reporting
+    #pre-refit numbers (this is exactly what caused vaccination to show 0%
+    #here after the vax1_start/vax1_end/vax1_total_doses fitting bug was
+    #fixed and the model refit, until this check was added).
     cache_stale <- file.exists(out_path) && file.exists(fit_path) &&
         file.info(fit_path)$mtime > file.info(out_path)$mtime
     if (file.exists(out_path) && !force && !cache_stale) {
@@ -924,14 +924,14 @@ for (hz in all_fit_hzs) {
 }
 contribution_objs <- contribution_objs[!vapply(contribution_objs, is.null, logical(1))]
 
-# ---- Build the relative-contribution figures (one per outcome) ----
+#---- Build the relative-contribution figures (one per outcome) ----
 
 if (length(contribution_objs) == 0) {
     cat("No intervention contribution results available - skipping figure.\n")
 } else {
-    # Re-derive per-HZ total "no interventions" excess (the full historical
-    # response's total preventable burden) as the normalising denominator -
-    # already computed and saved in <hz>_scenarios.rds by run_scenarios_hz()
+    #Re-derive per-HZ total "no interventions" excess (the full historical
+    #response's total preventable burden) as the normalising denominator -
+    #already computed and saved in <hz>_scenarios.rds by run_scenarios_hz()
     scenario_rds_files2 <- list.files(rds_dir, pattern = "_scenarios\\.rds$", full.names = TRUE)
     scenario_rds_files2 <- scenario_rds_files2[!grepl("FAILED", scenario_rds_files2)]
     scenario_objs2 <- lapply(scenario_rds_files2, readRDS)
@@ -962,8 +962,8 @@ if (length(contribution_objs) == 0) {
             mutate(hz = hz, snap_time = snap_time)
     }) %>% bind_rows()
 
-    # Cases/deaths averted BY that lever alone = -(scenario - no_interventions).
-    # Negating a set of quantiles swaps their order (q0p025 <-> q0p975, etc.)
+    #Cases/deaths averted BY that lever alone = -(scenario - no_interventions).
+    #Negating a set of quantiles swaps their order (q0p025 <-> q0p975, etc.)
     contrib_dat <- contrib_dat %>%
         mutate(
             averted_q0p025 = -q0p975, averted_q0p25 = -q0p75,
@@ -980,18 +980,18 @@ if (length(contribution_objs) == 0) {
             intervention = factor(intervention_labels[scenario], levels = unname(intervention_labels[intervention_order])),
             variable = factor(variable, levels = c("cum_symptoms", "cum_deaths")),
             num_label = paste0(round(pct_q0p5), "% (", round(pct_q0p025), " to ", round(pct_q0p975), ")"),
-            # Anchored at the 25/75% box edge, not the 95% whisker end: a few
-            # HZs (small effective population -> noisy add-one-in estimates)
-            # have 95% intervals wide enough to overflow any sensible shared
-            # x-axis, dragging their label off-panel with them. The box edge
-            # stays comfortably inside the axis range in every case, while
-            # num_label still reports the true 95% interval.
+            #Anchored at the 25/75% box edge, not the 95% whisker end: a few
+            #HZs (small effective population -> noisy add-one-in estimates)
+            #have 95% intervals wide enough to overflow any sensible shared
+            #x-axis, dragging their label off-panel with them. The box edge
+            #stays comfortably inside the axis range in every case, while
+            #num_label still reports the true 95% interval.
             label_x = ifelse(pct_q0p5 >= 0, pct_q0p75, pct_q0p25),
             label_hjust = ifelse(pct_q0p5 >= 0, -0.08, 1.08)
         )
 
-    # HZ ordering: reuse the same "no-intervention excess" magnitude ranking
-    # as the composite scenario figure, now over all 12 HZs
+    #HZ ordering: reuse the same "no-intervention excess" magnitude ranking
+    #as the composite scenario figure, now over all 12 HZs
     hz_rank_all <- denom_dat %>%
         filter(variable == "cum_symptoms") %>%
         arrange(denom) %>%
@@ -1011,12 +1011,12 @@ if (length(contribution_objs) == 0) {
                 hz = factor(hz_rank_all[1], levels = hz_rank_all),
                 intervention = factor(levels(dat$intervention)[1], levels = levels(dat$intervention))
             )
-            # Keep each label anchored just inside the clipped view even when
-            # its true whisker end (label_x) falls outside it - otherwise the
-            # text itself gets clipped/garbled at the panel edge. The printed
-            # numbers (num_label) still show the true, unclamped values. When
-            # clamped, the label must also grow INWARD (hjust flips) instead
-            # of outward, or it would just push back past the same edge.
+            #Keep each label anchored just inside the clipped view even when
+            #its true whisker end (label_x) falls outside it - otherwise the
+            #text itself gets clipped/garbled at the panel edge. The printed
+            #numbers (num_label) still show the true, unclamped values. When
+            #clamped, the label must also grow INWARD (hjust flips) instead
+            #of outward, or it would just push back past the same edge.
             inner_margin <- diff(xlim_clip) * 0.02
             dat <- dat %>%
                 mutate(

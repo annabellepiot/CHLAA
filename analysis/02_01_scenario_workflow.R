@@ -1,27 +1,25 @@
-# =============================================================================
-# Scenario Workflow Vignette
-# Reproduces: https://ojwatson.github.io/chlaa/articles/scenario_workflow.html
+#=============================================================================
+#Scenario Workflow Vignette
+#Reproduces: https://ojwatson.github.io/chlaa/articles/scenario_workflow.html
 #
-# This script performs scenario analysis starting from a fitted pMCMC model.
-# It defines no-intervention, anticipatory-action, and anticipatory-action +
-# vaccination scenarios, then produces posterior scenario forecasts and
-# decision summary tables.
-# =============================================================================
+#This script performs scenario analysis starting from a fitted pMCMC model.
+#It defines no-intervention, anticipatory-action, and anticipatory-action +
+#vaccination scenarios, then produces posterior scenario forecasts and
+#decision summary tables.
+#=============================================================================
 
 library(chlaa)
 library(ggplot2)
 library(dplyr)
 
-# Directory for saving figures
+#Directory for saving figures
 fig_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures"
 dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
 
-# -----------------------------------------------------------------------------
-# 1. Load the fitted model
-# -----------------------------------------------------------------------------
-# Scenario analysis starts from a model that can reproduce the outbreak we are
-# using as the baseline. This reads the pre-fitted stochastic pMCMC model for
-# Kirotshe from package data rather than refitting.
+# Load the fitted model ----
+#Scenario analysis starts from a model that can reproduce the outbreak we are
+#using as the baseline. This reads the pre-fitted stochastic pMCMC model for
+#Kirotshe from package data rather than refitting.
 
 data_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/data"
 fit_obj <- readRDS(file.path(data_dir, "kirotshe_particle_fit.rds"))
@@ -38,12 +36,10 @@ pars_fit <- chlaa_update_from_fit(
   burnin = burnin
 )
 
-# -----------------------------------------------------------------------------
-# 2. Posterior predictive check
-# -----------------------------------------------------------------------------
-# The posterior predictive check shows the fitted distribution for weekly
-# reported cases. The points are the observed Kirotshe data; the ribbons and
-# line come from posterior draws.
+# Posterior predictive check ----
+#The posterior predictive check shows the fitted distribution for weekly
+#reported cases. The points are the observed Kirotshe data; the ribbons and
+#line come from posterior draws.
 
 fit_fc <- chlaa_forecast_from_fit(
   fit = fit,
@@ -72,12 +68,10 @@ ggsave(
   plot = p_posterior_check, width = 10, height = 6, dpi = 300
 )
 
-# -----------------------------------------------------------------------------
-# 3. Define scenario parameters
-# -----------------------------------------------------------------------------
-# The baseline scenario is the fitted outbreak with the recorded intervention
-# timings. We compare it with one no-intervention counterfactual and two
-# anticipatory-action examples.
+# Define scenario parameters ----
+#The baseline scenario is the fitted outbreak with the recorded intervention
+#timings. We compare it with one no-intervention counterfactual and two
+#anticipatory-action examples.
 
 horizon <- max(observed$time) + 182
 scenario_time <- seq(7, horizon, by = 7)
@@ -86,15 +80,15 @@ response_end <- horizon + 1
 campaign_days <- 28
 vaccine_doses <- floor(0.20 * pars_fit$N)
 
-# Helper to generate a uniform vaccination schedule for scenario use.
-# The odin model requires interpolated schedule arrays, not just
-# vax1_start/end/total_doses.
+#Helper to generate a uniform vaccination schedule for scenario use.
+#The odin model requires interpolated schedule arrays, not just
+#vax1_start/end/total_doses.
 make_scenario_vax_schedule <- function(total_doses, start_day, end_day) {
   n_days <- max(end_day - start_day, 1L)
   daily_doses <- total_doses / n_days
   sched_time <- as.integer(c(start_day, end_day))
   sched_doses <- c(daily_doses, 0)
-  # Ensure schedule covers early times for interpolation
+  #Ensure schedule covers early times for interpolation
   if (min(sched_time) > 0) {
     sched_time <- c(0L, sched_time)
     sched_doses <- c(0, sched_doses)
@@ -106,7 +100,7 @@ make_scenario_vax_schedule <- function(total_doses, start_day, end_day) {
   )
 }
 
-# Empty vaccination schedule arrays (for scenarios with no vaccination)
+#Empty vaccination schedule arrays (for scenarios with no vaccination)
 empty_vax <- list(
   vax1_schedule_time = c(0L, 1L),
   vax1_schedule_doses = c(0, 0),
@@ -116,7 +110,7 @@ empty_vax <- list(
   n_vax2_schedule = 2L
 )
 
-# No intervention counterfactual: all interventions turned off
+#No intervention counterfactual: all interventions turned off
 no_intervention <- c(list(
   chlor_start = 0, chlor_end = 0, chlor_effect = 0,
   hyg_start = 0, hyg_end = 0, hyg_effect = 0,
@@ -128,7 +122,7 @@ no_intervention <- c(list(
   vax2_start = 0, vax2_end = 0, vax2_total_doses = 0
 ), empty_vax)
 
-# Anticipatory-action response: WASH + treatment triggered at 50-case threshold
+#Anticipatory-action response: WASH + treatment triggered at 50-case threshold
 aa_response <- c(list(
   chlor_start = trigger_time, chlor_end = response_end, chlor_effect = pars_fit$chlor_effect,
   hyg_start = trigger_time, hyg_end = response_end, hyg_effect = pars_fit$hyg_effect,
@@ -140,7 +134,7 @@ aa_response <- c(list(
   vax2_start = 0, vax2_end = 0, vax2_total_doses = 0
 ), empty_vax)
 
-# Anticipatory-action response + vaccination campaign
+#Anticipatory-action response + vaccination campaign
 vax1_start_day <- trigger_time + 14
 vax1_end_day <- vax1_start_day + campaign_days
 vax_sched <- make_scenario_vax_schedule(vaccine_doses, vax1_start_day, vax1_end_day)
@@ -158,13 +152,11 @@ scenarios <- list(
 
 vapply(scenarios, `[[`, character(1), "name")
 
-# -----------------------------------------------------------------------------
-# 4. Posterior scenario forecasts
-# -----------------------------------------------------------------------------
-# chlaa_forecast_scenarios_from_fit() uses the same posterior draws for each
-# scenario, then reports absolute forecasts and paired differences against the
-# baseline. That pairing matters because it removes some Monte Carlo noise
-# from scenario differences.
+# Posterior scenario forecasts ----
+#chlaa_forecast_scenarios_from_fit() uses the same posterior draws for each
+#scenario, then reports absolute forecasts and paired differences against the
+#baseline. That pairing matters because it removes some Monte Carlo noise
+#from scenario differences.
 
 scenario_fc <- chlaa_forecast_scenarios_from_fit(
   fit = fit,
@@ -181,7 +173,7 @@ scenario_fc <- chlaa_forecast_scenarios_from_fit(
   dt = 1
 )
 
-# Absolute scenario forecasts: weekly cases across all intervention scenarios
+#Absolute scenario forecasts: weekly cases across all intervention scenarios
 p_scenario_absolute <- chlaa_plot_scenario_forecasts(
   scenario_fc,
   var = "cases",
@@ -196,7 +188,7 @@ ggsave(
   plot = p_scenario_absolute, width = 12, height = 7, dpi = 300
 )
 
-# Difference plot: cumulative deaths relative to baseline
+#Difference plot: cumulative deaths relative to baseline
 p_scenario_diff_deaths <- chlaa_plot_scenario_forecasts(
   scenario_fc,
   var = "cum_deaths",
@@ -210,16 +202,16 @@ ggsave(
   plot = p_scenario_diff_deaths, width = 12, height = 7, dpi = 300
 )
 
-# Cumulative excess cases & deaths at time snapshots
-# Two separate 2x2 faceted plots: one for cases, one for deaths
+#Cumulative excess cases & deaths at time snapshots
+#Two separate 2x2 faceted plots: one for cases, one for deaths
 
-# Find nearest available weekly time points to 100, 200, 300, 400 days
+#Find nearest available weekly time points to 100, 200, 300, 400 days
 target_days <- c(100, 200, 300, 400)
 snap_times <- vapply(target_days, function(d) {
   scenario_time[which.min(abs(scenario_time - d))]
 }, numeric(1))
 
-# Scenario colours and ordering
+#Scenario colours and ordering
 scenario_colours <- c(
   "aa_response"              = "#cb86ff",
   "aa_response_plus_vaccine" = "#88b517",
@@ -233,14 +225,14 @@ scenario_labels <- c(
   "no_interventions"          = "No\ninterventions"
 )
 
-# Legend labels (single-line for legend)
+#Legend labels (single-line for legend)
 scenario_legend_labels <- c(
   "aa_response"               = "AA response",
   "aa_response_plus_vaccine"  = "AA response + vaccination",
   "no_interventions"          = "No interventions"
 )
 
-# Helper: build one excess plot (cases or deaths)
+#Helper: build one excess plot (cases or deaths)
 build_excess_plot <- function(var_name, y_label) {
   dat <- scenario_fc %>%
     filter(type == "difference", variable == var_name,
@@ -251,7 +243,7 @@ build_excess_plot <- function(var_name, y_label) {
       scenario = factor(scenario, levels = scenario_order)
     )
 
-  # Numeric labels: "median (95% UI lower to upper)"
+  #Numeric labels: "median (95% UI lower to upper)"
   dat <- dat %>%
     mutate(num_label = paste0(
       round(q0p5), "\n(",
@@ -259,19 +251,19 @@ build_excess_plot <- function(var_name, y_label) {
       round(q0p975), ")"
     ))
 
-  # Position labels above/below the whisker depending on sign
+  #Position labels above/below the whisker depending on sign
   dat <- dat %>%
     mutate(label_y = ifelse(q0p5 >= 0, q0p975, q0p025),
            label_vjust = ifelse(q0p5 >= 0, -0.15, 1.15))
 
-  # "Fitted response" label: placed at right side of 200 days facet
+  #"Fitted response" label: placed at right side of 200 days facet
   label_df <- data.frame(
     facet = factor("200 days", levels = paste0(target_days, " days")),
     x = "no_interventions", y = 0, label = "Fitted response "
   )
   label_df$x <- factor(label_df$x, levels = scenario_order)
 
-  # Compute a tighter y-axis range based on data
+  #Compute a tighter y-axis range based on data
   y_lo <- min(dat$q0p025, na.rm = TRUE)
   y_hi <- max(dat$q0p975, na.rm = TRUE)
   y_pad <- (y_hi - y_lo) * 0.25
@@ -324,7 +316,7 @@ build_excess_plot <- function(var_name, y_label) {
     )
 }
 
-# Cases plot
+#Cases plot
 p_excess_cases <- build_excess_plot(
   "cum_symptoms",
   "Excess cumulative cases"
@@ -336,7 +328,7 @@ ggsave(file.path(fig_dir, "scenario_excess_cases_kirotshe.png"),
 ggsave(file.path(fig_dir, "scenario_excess_cases_kirotshe.pdf"),
        plot = p_excess_cases, width = 10, height = 9)
 
-# Deaths plot
+#Deaths plot
 p_excess_deaths <- build_excess_plot(
   "cum_deaths",
   "Excess cumulative deaths"
@@ -348,12 +340,10 @@ ggsave(file.path(fig_dir, "scenario_excess_deaths_kirotshe.png"),
 ggsave(file.path(fig_dir, "scenario_excess_deaths_kirotshe.pdf"),
        plot = p_excess_deaths, width = 10, height = 9)
 
-# -----------------------------------------------------------------------------
-# 5. Decision summary
-# -----------------------------------------------------------------------------
-# For compact decision tables we simulate the same scenarios using the
-# posterior median parameter set. This is faster and easier to inspect, while
-# the forecast plots above show posterior uncertainty.
+# Decision summary ----
+#For compact decision tables we simulate the same scenarios using the
+#posterior median parameter set. This is faster and easier to inspect, while
+#the forecast plots above show posterior uncertainty.
 
 scenario_runs <- chlaa_run_scenarios(
   pars = pars_fit,
@@ -364,8 +354,8 @@ scenario_runs <- chlaa_run_scenarios(
   seed = 13
 )
 
-# Summary table with total cases, deaths, cases/deaths averted, peak
-# incidence, time to peak, and time to control
+#Summary table with total cases, deaths, cases/deaths averted, peak
+#incidence, time to peak, and time to control
 scenario_summary <- chlaa_scenario_summary(
   scenario_runs,
   baseline = "fitted_response",
@@ -373,8 +363,8 @@ scenario_summary <- chlaa_scenario_summary(
 )
 print(scenario_summary)
 
-# Comprehensive comparison including health economic metrics (costs, DALYs,
-# ICERs, net monetary benefit)
+#Comprehensive comparison including health economic metrics (costs, DALYs,
+#ICERs, net monetary benefit)
 scenario_comparison <- chlaa_compare_scenarios(
   scenario_runs,
   baseline = "fitted_response",

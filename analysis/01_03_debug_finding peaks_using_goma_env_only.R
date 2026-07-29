@@ -1,13 +1,13 @@
-# =============================================================================
-# Goma single-HZ fitting (matches 01_02 workflow for local troubleshooting)
-# =============================================================================
-# It is not necessary to refer to this script to run any of the analysis.
-# This script contains fitting for goma only, and then some tests on 4 HZs, to debug and determine is any
-# sustained R0 is produced and how to fix it.
-# Tests have been named Test E after the main fitting, followed by Test C, and then additional
-# tests/plotting to get helpful output.
-# This is the script that taught the changes implemeted in the main 01_02 script that runs all HZs.
-# It is messy and helpful reference for the experiments previosly run, but not intended for production use.
+#=============================================================================
+#Goma single-HZ fitting (matches 01_02 workflow for local troubleshooting)
+#=============================================================================
+#It is not necessary to refer to this script to run any of the analysis.
+#This script contains fitting for goma only, and then some tests on 4 HZs, to debug and determine is any
+#sustained R0 is produced and how to fix it.
+#Tests have been named Test E after the main fitting, followed by Test C, and then additional
+#tests/plotting to get helpful output.
+#This is the script that taught the changes implemeted in the main 01_02 script that runs all HZs.
+#It is messy and helpful reference for the experiments previosly run, but not intended for production use.
 
 library(chlaa)
 library(ggplot2)
@@ -21,7 +21,7 @@ dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
 
 hz_name <- "goma"
 
-# ---- 1. Load data ----
+#---- 1. Load data ----
 
 hz_params_long <- read.csv(file.path(data_dir, "hz_parameters.csv"), stringsAsFactors = FALSE)
 idsr <- read.csv(file.path(data_dir, "IDSR_dataset.csv"))
@@ -42,10 +42,10 @@ outbreak_end <- hz_rows_long %>%
 
 cat("Outbreak window:", as.character(outbreak_start), "to", as.character(outbreak_end), "\n")
 
-# Burn-in: model starts this many days before first observation (day 7)
+#Burn-in: model starts this many days before first observation (day 7)
 time_start <- -21L
 
-# ---- 2. Helpers ----
+#---- 2. Helpers ----
 
 safe_date_to_day <- function(date_str, origin) {
     d <- as.Date(date_str, format = "%Y-%m-%d")
@@ -132,7 +132,7 @@ plot_case_fit <- function(fit, observed, title, seed, burnin = 0.25) {
         labs(x = NULL, y = "Weekly reported cases", title = title)
 }
 
-# ---- 3. Intervention dates ----
+#---- 3. Intervention dates ----
 
 orc_start_day <- safe_date_to_day(get_param("orc_start"), outbreak_start)
 orc_end_day <- safe_date_to_day(get_param("orc_end"), outbreak_start)
@@ -152,7 +152,7 @@ hyg_effect_val <- as.numeric(get_param("hyg_effect"))
 cati_effect_val <- as.numeric(get_param("cati_effect"))
 lat_effect_val <- as.numeric(get_param("lat_effect"))
 
-# ---- 4. Vaccination schedules ----
+#---- 4. Vaccination schedules ----
 
 generate_vax_schedule <- function(total_doses, start_date, end_date, outbreak_start) {
     profile <- c(0.305, 0.377, 0.227, 0.074, 0.014, 0.003)
@@ -170,7 +170,7 @@ generate_vax_schedule <- function(total_doses, start_date, end_date, outbreak_st
         time = seq(start_day, by = 1L, length.out = n_days),
         doses = as.numeric(daily_doses)
     )
-    # Ensure schedule covers time_start for interpolation
+    #Ensure schedule covers time_start for interpolation
     if (min(sched$time) > time_start) {
         sched <- rbind(data.frame(time = time_start, doses = 0), sched)
     }
@@ -185,7 +185,7 @@ prepare_vax_arrays <- function(schedule) {
     list(time = as.integer(schedule$time), doses = as.numeric(schedule$doses))
 }
 
-# Vax1
+#Vax1
 vax_hz <- vax_dates %>%
     filter(healthzone == hz_name | healthzone == gsub("_", " ", hz_name) |
         healthzone == gsub("_", "-", hz_name))
@@ -230,7 +230,7 @@ if (nrow(vax1_campaigns) > 0 && !is.na(vax1_total_doses_hz) && vax1_total_doses_
     vax1_end_day <- 0L
 }
 
-# Vax2
+#Vax2
 vax2_total_doses_hz <- hz_rows_long %>%
     filter(parameter == "vax2_total_doses") %>%
     pull(value) %>%
@@ -271,7 +271,7 @@ if (nrow(vax2_campaigns) > 0 && !is.na(vax2_total_doses_hz) && vax2_total_doses_
     vax2_end_day <- 0L
 }
 
-# ---- 5. Weekly case data ----
+#---- 5. Weekly case data ----
 
 hz_weekly <- idsr %>%
     filter(hz == hz_name) %>%
@@ -286,9 +286,9 @@ pop_hz <- hz_weekly$population[1]
 total_cases <- sum(hz_outbreak$cases)
 cat("Population:", pop_hz, "\nOutbreak weeks:", nrow(hz_outbreak), "\nTotal cases:", total_cases, "\n")
 
-# Reference population for scaling contam_half_sat (Kirotshe ~516k)
-# This makes the environmental FOI depend on per-capita prevalence rather
-# than absolute case counts, so trans_prob stays comparable across zones.
+#Reference population for scaling contam_half_sat (Kirotshe ~516k)
+#This makes the environmental FOI depend on per-capita prevalence rather
+#than absolute case counts, so trans_prob stays comparable across zones.
 pop_ref <- 516000
 contam_half_sat_scaled <- 1.0 * (pop_hz / pop_ref)
 cat(
@@ -301,7 +301,7 @@ hz_data_weekly <- hz_outbreak %>%
     select(time, date, cases, deaths) %>%
     arrange(time)
 
-# ---- 6. E0 initialization ----
+#---- 6. E0 initialization ----
 
 expected_reporting_rate <- 0.10
 seed_date <- outbreak_start - 14
@@ -318,11 +318,11 @@ if (total_cases < 50) {
     E0_val <- ceiling(max(5, hz_outbreak$cases[1]) / expected_reporting_rate)
 }
 E0_MAX <- 800
-E0_val <- min(E0_val, 0.9 * E0_MAX) # start at most 720, strictly inside
+E0_val <- min(E0_val, 0.9 * E0_MAX) #start at most 720, strictly inside
 E0_val <- max(10, E0_val)
 cat("E0:", E0_val, "\n")
 
-# ---- 7. Fitting setup (matches 01_02) ----
+#---- 7. Fitting setup (matches 01_02) ----
 
 natural_fit_names <- c("trans_prob", "reporting_rate", "obs_size", "E0")
 fit_names <- c("log_trans_prob", "logit_reporting_rate", "log_obs_size", "log_E0")
@@ -342,7 +342,7 @@ make_packer <- function(pars, freeze_reporting_rate = FALSE) {
     } else {
         fit_names
     }
-    frozen_rr <- pars$reporting_rate # capture before the closure
+    frozen_rr <- pars$reporting_rate #capture before the closure
     fixed <- pars[setdiff(names(pars), c(fit_names_use, natural_fit_names, seed_state_names))]
     monty::monty_packer(
         scalar = fit_names_use,
@@ -407,12 +407,12 @@ make_start <- function(trans_prob, reporting_rate, obs_size, E0,
     add_transformed_values(out, freeze_reporting_rate = freeze_reporting_rate)
 }
 
-# ---- 8. Priors and starting points ----
+#---- 8. Priors and starting points ----
 
 fit_prior_full <- monty::monty_dsl(
     {
-        log_trans_prob ~ Uniform(-9.21034, -4.60517) # log(1e-4) to log(1e-2)
-        logit_reporting_rate ~ Uniform(-2.751535, -0.847298) # qlogis(c(0.06, 0.30))
+        log_trans_prob ~ Uniform(-9.21034, -4.60517) #log(1e-4) to log(1e-2)
+        logit_reporting_rate ~ Uniform(-2.751535, -0.847298) #qlogis(c(0.06, 0.30))
         log_obs_size ~ Uniform(0, 5.703782)
         log_E0 ~ Uniform(2.302585, 6.684612)
     },
@@ -421,7 +421,7 @@ fit_prior_full <- monty::monty_dsl(
 
 fit_prior_freeze <- monty::monty_dsl(
     {
-        log_trans_prob ~ Uniform(-9.21034, -4.60517) # log(1e-4) to log(1e-2)
+        log_trans_prob ~ Uniform(-9.21034, -4.60517) #log(1e-4) to log(1e-2)
         log_obs_size ~ Uniform(0, 5.703782)
         log_E0 ~ Uniform(2.302585, 6.684612)
     },
@@ -451,19 +451,19 @@ fit_data <- data.frame(
     deaths = hz_data_weekly$deaths
 )
 
-# ---- 9. Exploratory fit (freeze reporting_rate) ----
+#---- 9. Exploratory fit (freeze reporting_rate) ----
 
 n_params <- if (freeze_reporting_rate) 3 else 4
 explore_proposal <- matrix(0, n_params, n_params)
 if (freeze_reporting_rate) {
-    explore_proposal[1, 1] <- 0.02 # log_trans_prob
-    explore_proposal[2, 2] <- 0.08 # log_obs_size
-    explore_proposal[3, 3] <- 0.08 # log_E0
+    explore_proposal[1, 1] <- 0.02 #log_trans_prob
+    explore_proposal[2, 2] <- 0.08 #log_obs_size
+    explore_proposal[3, 3] <- 0.08 #log_E0
 } else {
-    explore_proposal[1, 1] <- 0.02 # log_trans_prob
-    explore_proposal[2, 2] <- 0.05 # logit_reporting_rate
-    explore_proposal[3, 3] <- 0.08 # log_obs_size
-    explore_proposal[4, 4] <- 0.08 # log_E0
+    explore_proposal[1, 1] <- 0.02 #log_trans_prob
+    explore_proposal[2, 2] <- 0.05 #logit_reporting_rate
+    explore_proposal[3, 3] <- 0.08 #log_obs_size
+    explore_proposal[4, 4] <- 0.08 #log_E0
 }
 
 cat("\n=== EXPLORATORY FIT ===\n")
@@ -486,7 +486,7 @@ report_explore <- chlaa_fit_report(fit_explore, burnin = 0.25, thin = 2)
 cat("Exploratory acceptance:", report_explore$acceptance_rate, "\n")
 print(report_explore$posterior_summary)
 
-# ---- 10. Learn covariance and prepare production ----
+#---- 10. Learn covariance and prepare production ----
 
 packer <- attr(fit_explore, "packer")
 d <- length(packer$names())
@@ -505,7 +505,7 @@ warm_vec <- apply(pooled, 2, median)
 pars_warm <- fit_starts_stage1[[1]]
 for (nm in names(warm_vec)) pars_warm[[nm]] <- warm_vec[[nm]]
 
-# Unfreeze reporting_rate for production
+#Unfreeze reporting_rate for production
 fit_starts_stage2 <- if (freeze_reporting_rate) {
     chain_median_starts(fit_explore, template_pars = fit_starts_full[[1]])
 } else {
@@ -529,7 +529,7 @@ prod_proposal <- tryCatch(
     }
 )
 
-# Expand proposal if freeze -> full
+#Expand proposal if freeze -> full
 if (freeze_reporting_rate && ncol(prod_proposal) == 3) {
     prop4 <- matrix(0, 4, 4)
     idx_map <- c(1L, 3L, 4L)
@@ -542,7 +542,7 @@ diag(prod_proposal) <- pmax(diag(prod_proposal), 1e-6)
 rm(fit_explore, report_explore, packer, pooled, pars_mat)
 gc()
 
-# ---- 11. Production fit (all 4 params) ----
+#---- 11. Production fit (all 4 params) ----
 
 cat("\n=== PRODUCTION FIT ===\n")
 fit <- chlaa_fit_pmcmc(
@@ -564,7 +564,7 @@ report_prod <- chlaa_fit_report(fit, burnin = 0.25, thin = 2)
 cat("Production acceptance:", report_prod$acceptance_rate, "\n")
 print(report_prod$posterior_summary)
 
-# ---- 12. Diagnostics ----
+#---- 12. Diagnostics ----
 
 p_trace <- chlaa_plot_trace(fit, parameters = natural_fit_names, burnin = 0.25, scale = "natural")
 ggsave(file.path(fig_dir, "goma_production_trace.png"), p_trace, width = 12, height = 8, dpi = 300)
@@ -590,7 +590,7 @@ p_fit <- plot_case_fit(fit, hz_data_weekly,
 )
 ggsave(file.path(fig_dir, "goma_production_fit.png"), p_fit, width = 10, height = 6, dpi = 300)
 
-# ---- 13. Save ----
+#---- 13. Save ----
 
 saveRDS(
     list(
@@ -603,22 +603,22 @@ saveRDS(
 cat("\nDone. Figures saved to:", fig_dir, "\n")
 
 
-### just debugging below, delete later on
+###just debugging below, delete later on
 
-################# ___________________________#####################3
-#### test E -- fit N_eff as a fraction of census population
-# Run this block before test C to redefine the fitting infrastructure with frac_neff.
-# N_eff = frac * pop_hz;  h = H_REF * (pop_hz / POP_REF)  (census, decoupled from N_eff).
-# frac_neff only scales N (susceptible pool); h uses full census pop.
+#################___________________________#####################3
+####test E -- fit N_eff as a fraction of census population
+#Run this block before test C to redefine the fitting infrastructure with frac_neff.
+#N_eff = frac * pop_hz;  h = H_REF * (pop_hz / POP_REF)  (census, decoupled from N_eff).
+#frac_neff only scales N (susceptible pool); h uses full census pop.
 
 H_REF <- 1.0
 POP_REF <- 516000
-pop_hz_captured <- pop_hz # capture for closure
+pop_hz_captured <- pop_hz #capture for closure
 
 RR_FIXED <- 0.30
 natural_fit_names <- c("trans_prob", "obs_size", "E0", "frac_neff")
 fit_names <- c("log_trans_prob", "log_obs_size", "log_E0", "logit_frac_neff")
-freeze_reporting_rate <- TRUE # kept TRUE for both stages (reporting_rate never fitted)
+freeze_reporting_rate <- TRUE #kept TRUE for both stages (reporting_rate never fitted)
 
 add_transformed_values <- function(pars, freeze_reporting_rate = FALSE) {
     pars$log_trans_prob <- log(pars$trans_prob)
@@ -704,23 +704,23 @@ make_start <- function(trans_prob, obs_size, E0, frac_neff = 0.10,
     add_transformed_values(out, freeze_reporting_rate = freeze_reporting_rate)
 }
 
-# ---- Priors (4 params, reporting_rate fixed) ----
+#---- Priors (4 params, reporting_rate fixed) ----
 
 fit_prior <- monty::monty_dsl(
     {
-        log_trans_prob ~ Uniform(-9.21034, -2.995732) # log(c(1e-4, 5e-2))
+        log_trans_prob ~ Uniform(-9.21034, -2.995732) #log(c(1e-4, 5e-2))
         log_obs_size ~ Uniform(0, 5.703782)
-        log_E0 ~ Uniform(2.302585, 6.684612) # log(800)
-        logit_frac_neff ~ Uniform(-4.6, 2.944439) # ~qlogis(c(0.01, 0.95))
+        log_E0 ~ Uniform(2.302585, 6.684612) #log(800)
+        logit_frac_neff ~ Uniform(-4.6, 2.944439) #~qlogis(c(0.01, 0.95))
     },
     gradient = FALSE
 )
 
-# ---- Starting points ----
+#---- Starting points ----
 
 r0_targets <- c(1.5, 2.5, 4.0)
 frac_starts <- c(0.10, 0.05, 0.20)
-K_R0 <- POP_REF * 5.1446e-3 / H_REF # = 2654.6 at H_REF = 1
+K_R0 <- POP_REF * 5.1446e-3 / H_REF #= 2654.6 at H_REF = 1
 tp_starts <- r0_targets / (frac_starts * K_R0)
 
 fit_starts <- list(
@@ -733,28 +733,28 @@ fit_prior_stage1 <- fit_prior
 fit_starts_stage1 <- fit_starts
 fit_packer_stage1 <- make_packer(fit_starts_stage1[[1]], freeze_reporting_rate = freeze_reporting_rate)
 
-# ---- Verify N and contam_half_sat reach the model via process ----
-# Build pars at frac_neff = 0.10, then unpack at frac_neff = 0.50.
-# N should change with frac; h should stay at census value (decoupled).
+#---- Verify N and contam_half_sat reach the model via process ----
+#Build pars at frac_neff = 0.10, then unpack at frac_neff = 0.50.
+#N should change with frac; h should stay at census value (decoupled).
 cat("\n=== VERIFYING frac_neff plumbing ===\n")
 
 test_pars <- make_start(1e-3, 30, E0_val, frac_neff = 0.10)
 test_packer <- make_packer(test_pars)
 
-# Check N and contam_half_sat are NOT in the packer's fixed list
+#Check N and contam_half_sat are NOT in the packer's fixed list
 fixed_names <- names(test_packer$fixed)
 stopifnot(!"N" %in% fixed_names)
 stopifnot(!"contam_half_sat" %in% fixed_names)
 cat("  OK: N and contam_half_sat excluded from fixed\n")
 
-# Pack at frac=0.10, override logit_frac_neff to frac=0.50, unpack
+#Pack at frac=0.10, override logit_frac_neff to frac=0.50, unpack
 theta <- test_packer$pack(test_pars)
 idx_frac <- which(test_packer$names() == "logit_frac_neff")
 theta[idx_frac] <- qlogis(0.50)
 unpacked <- test_packer$unpack(theta)
 
 expected_N <- 0.50 * pop_hz
-expected_h <- H_REF * (pop_hz / POP_REF) # census, NOT N_eff
+expected_h <- H_REF * (pop_hz / POP_REF) #census, NOT N_eff
 
 stopifnot(abs(unpacked$N - expected_N) < 1e-6)
 stopifnot(abs(unpacked$contam_half_sat - expected_h) < 1e-6)
@@ -763,7 +763,7 @@ cat(sprintf(
     unpacked$N, expected_N, unpacked$contam_half_sat, expected_h
 ))
 
-# Single simulate call to confirm model actually receives these values
+#Single simulate call to confirm model actually receives these values
 test_sim <- chlaa_simulate(
     pars = unpacked,
     time = seq(0, 7, by = 1),
@@ -781,14 +781,14 @@ fit_data <- data.frame(
     deaths = hz_data_weekly$deaths
 )
 
-# ---- Exploratory fit (freeze reporting_rate) ----
+#---- Exploratory fit (freeze reporting_rate) ----
 
-n_params <- 4 # log_trans_prob, log_obs_size, log_E0, logit_frac_neff
+n_params <- 4 #log_trans_prob, log_obs_size, log_E0, logit_frac_neff
 explore_proposal <- matrix(0, n_params, n_params)
-explore_proposal[1, 1] <- 0.02 # log_trans_prob
-explore_proposal[2, 2] <- 0.08 # log_obs_size
-explore_proposal[3, 3] <- 0.08 # log_E0
-explore_proposal[4, 4] <- 0.10 # logit_frac_neff
+explore_proposal[1, 1] <- 0.02 #log_trans_prob
+explore_proposal[2, 2] <- 0.08 #log_obs_size
+explore_proposal[3, 3] <- 0.08 #log_E0
+explore_proposal[4, 4] <- 0.10 #logit_frac_neff
 
 cat("\n=== EXPLORATORY FIT (with frac_neff) ===\n")
 fit_explore <- chlaa_fit_pmcmc(
@@ -810,7 +810,7 @@ report_explore <- chlaa_fit_report(fit_explore, burnin = 0.25, thin = 2)
 cat("Exploratory acceptance:", report_explore$acceptance_rate, "\n")
 print(report_explore$posterior_summary)
 
-# ---- Learn covariance and prepare production ----
+#---- Learn covariance and prepare production ----
 
 packer <- attr(fit_explore, "packer")
 d <- length(packer$names())
@@ -829,7 +829,7 @@ warm_vec <- apply(pooled, 2, median)
 pars_warm <- fit_starts_stage1[[1]]
 for (nm in names(warm_vec)) pars_warm[[nm]] <- warm_vec[[nm]]
 
-# Warm-start production from exploratory medians (same 4 params throughout)
+#Warm-start production from exploratory medians (same 4 params throughout)
 fit_starts_stage2 <- chain_median_starts(fit_explore, template_pars = fit_starts[[1]])
 
 fit_packer_stage2 <- make_packer(fit_starts_stage2[[1]])
@@ -852,7 +852,7 @@ diag(prod_proposal) <- pmax(diag(prod_proposal), 1e-6)
 rm(fit_explore, report_explore, packer, pooled, pars_mat)
 gc()
 
-# ---- Production fit (4 params, reporting_rate fixed) ----
+#---- Production fit (4 params, reporting_rate fixed) ----
 
 cat("\n=== PRODUCTION FIT (with frac_neff, rr fixed) ===\n")
 fit <- chlaa_fit_pmcmc(
@@ -874,15 +874,15 @@ report_prod <- chlaa_fit_report(fit, burnin = 0.25, thin = 2)
 cat("Production acceptance:", report_prod$acceptance_rate, "\n")
 print(report_prod$posterior_summary)
 
-# R-hat and ESS (proper multi-chain diagnostic)
-pars_arr <- fit$pars # (param, iter, chain)
+#R-hat and ESS (proper multi-chain diagnostic)
+pars_arr <- fit$pars #(param, iter, chain)
 dimnames(pars_arr) <- list(attr(fit, "packer")$names(), NULL, NULL)
-draws_diag <- posterior::as_draws_array(aperm(pars_arr, c(2, 3, 1))) # (iter, chain, param)
+draws_diag <- posterior::as_draws_array(aperm(pars_arr, c(2, 3, 1))) #(iter, chain, param)
 cat("\n=== R-hat and ESS ===\n")
 print(posterior::summarise_draws(draws_diag, "rhat", "ess_bulk", "ess_tail"))
 rm(pars_arr, draws_diag)
 
-# ---- Diagnostics ----
+#---- Diagnostics ----
 
 p_trace <- chlaa_plot_trace(fit, parameters = natural_fit_names, burnin = 0.25, scale = "natural")
 ggsave(file.path(fig_dir, "goma_neff_trace.png"), p_trace, width = 12, height = 10, dpi = 300)
@@ -902,11 +902,11 @@ saveRDS(
 )
 
 cat("\nTest E done.\n")
-################# ___________________________#####################3
-#### test E done
+#################___________________________#####################3
+####test E done
 
 
-##### _____Now re-run Test C
+#####_____Now re-run Test C
 H_REF <- 1.0
 POP_REF <- 516000
 
@@ -931,10 +931,10 @@ fit_one_hz <- function(hz_name, h_ref = H_REF, pop_ref = POP_REF,
 
     cat("Outbreak window:", as.character(outbreak_start), "to", as.character(outbreak_end), "\n")
 
-    # Burn-in: model starts this many days before first observation (day 7)
+    #Burn-in: model starts this many days before first observation (day 7)
     time_start <- -21L
 
-    # ---- 2. Helpers ----
+    #---- 2. Helpers ----
 
     safe_date_to_day <- function(date_str, origin) {
         d <- as.Date(date_str, format = "%Y-%m-%d")
@@ -1021,7 +1021,7 @@ fit_one_hz <- function(hz_name, h_ref = H_REF, pop_ref = POP_REF,
             labs(x = NULL, y = "Weekly reported cases", title = title)
     }
 
-    # ---- 3. Intervention dates ----
+    #---- 3. Intervention dates ----
 
     orc_start_day <- safe_date_to_day(get_param("orc_start"), outbreak_start)
     orc_end_day <- safe_date_to_day(get_param("orc_end"), outbreak_start)
@@ -1041,7 +1041,7 @@ fit_one_hz <- function(hz_name, h_ref = H_REF, pop_ref = POP_REF,
     cati_effect_val <- as.numeric(get_param("cati_effect"))
     lat_effect_val <- as.numeric(get_param("lat_effect"))
 
-    # ---- 4. Vaccination schedules ----
+    #---- 4. Vaccination schedules ----
 
     generate_vax_schedule <- function(total_doses, start_date, end_date, outbreak_start) {
         profile <- c(0.305, 0.377, 0.227, 0.074, 0.014, 0.003)
@@ -1059,7 +1059,7 @@ fit_one_hz <- function(hz_name, h_ref = H_REF, pop_ref = POP_REF,
             time = seq(start_day, by = 1L, length.out = n_days),
             doses = as.numeric(daily_doses)
         )
-        # Ensure schedule covers time_start for interpolation
+        #Ensure schedule covers time_start for interpolation
         if (min(sched$time) > time_start) {
             sched <- rbind(data.frame(time = time_start, doses = 0), sched)
         }
@@ -1074,7 +1074,7 @@ fit_one_hz <- function(hz_name, h_ref = H_REF, pop_ref = POP_REF,
         list(time = as.integer(schedule$time), doses = as.numeric(schedule$doses))
     }
 
-    # Vax1
+    #Vax1
     vax_hz <- vax_dates %>%
         filter(healthzone == hz_name | healthzone == gsub("_", " ", hz_name) |
             healthzone == gsub("_", "-", hz_name))
@@ -1119,7 +1119,7 @@ fit_one_hz <- function(hz_name, h_ref = H_REF, pop_ref = POP_REF,
         vax1_end_day <- 0L
     }
 
-    # Vax2
+    #Vax2
     vax2_total_doses_hz <- hz_rows_long %>%
         filter(parameter == "vax2_total_doses") %>%
         pull(value) %>%
@@ -1160,7 +1160,7 @@ fit_one_hz <- function(hz_name, h_ref = H_REF, pop_ref = POP_REF,
         vax2_end_day <- 0L
     }
 
-    # ---- 5. Weekly case data ----
+    #---- 5. Weekly case data ----
 
     hz_weekly <- idsr %>%
         filter(hz == hz_name) %>%
@@ -1180,7 +1180,7 @@ fit_one_hz <- function(hz_name, h_ref = H_REF, pop_ref = POP_REF,
         select(time, date, cases, deaths) %>%
         arrange(time)
 
-    # ---- 6. E0 initialization ----
+    #---- 6. E0 initialization ----
 
     expected_reporting_rate <- 0.10
     seed_date <- outbreak_start - 14
@@ -1197,16 +1197,16 @@ fit_one_hz <- function(hz_name, h_ref = H_REF, pop_ref = POP_REF,
         E0_val <- ceiling(max(5, hz_outbreak$cases[1]) / expected_reporting_rate)
     }
     E0_MAX <- 800
-    E0_val <- min(E0_val, 0.9 * E0_MAX) # start at most 720, strictly inside
+    E0_val <- min(E0_val, 0.9 * E0_MAX) #start at most 720, strictly inside
     E0_val <- max(10, E0_val)
     cat("E0:", E0_val, "\n")
 
-    # ---- 7. Fitting setup (frac_neff, reporting_rate fixed) ----
+    #---- 7. Fitting setup (frac_neff, reporting_rate fixed) ----
 
     RR_FIXED <- 0.30
     natural_fit_names <- c("trans_prob", "obs_size", "E0", "frac_neff")
     fit_names <- c("log_trans_prob", "log_obs_size", "log_E0", "logit_frac_neff")
-    freeze_reporting_rate <- TRUE # kept TRUE for both stages
+    freeze_reporting_rate <- TRUE #kept TRUE for both stages
 
     add_transformed_values <- function(pars, freeze_reporting_rate = FALSE) {
         pars$log_trans_prob <- log(pars$trans_prob)
@@ -1292,27 +1292,27 @@ fit_one_hz <- function(hz_name, h_ref = H_REF, pop_ref = POP_REF,
         add_transformed_values(out, freeze_reporting_rate = freeze_reporting_rate)
     }
 
-    # Guard: confirm section 7 is the frac_neff version
+    #Guard: confirm section 7 is the frac_neff version
     stopifnot(
         "frac_neff" %in% natural_fit_names,
         "logit_frac_neff" %in% fit_names
     )
 
-    # ---- 8. Priors and starting points (4 params, reporting_rate fixed) ----
+    #---- 8. Priors and starting points (4 params, reporting_rate fixed) ----
 
     fit_prior <- monty::monty_dsl(
         {
-            log_trans_prob ~ Uniform(-9.21034, -2.995732) # log(c(1e-4, 5e-2))
+            log_trans_prob ~ Uniform(-9.21034, -2.995732) #log(c(1e-4, 5e-2))
             log_obs_size ~ Uniform(0, 5.703782)
-            log_E0 ~ Uniform(2.302585, 6.684612) # log(800)
-            logit_frac_neff ~ Uniform(-4.6, 2.944439) # ~qlogis(c(0.01, 0.95))
+            log_E0 ~ Uniform(2.302585, 6.684612) #log(800)
+            logit_frac_neff ~ Uniform(-4.6, 2.944439) #~qlogis(c(0.01, 0.95))
         },
         gradient = FALSE
     )
 
     r0_targets <- c(1.5, 2.5, 4.0)
     frac_starts <- c(0.10, 0.05, 0.20)
-    K_R0 <- pop_ref * 5.1446e-3 / h_ref # = 2654.6 at h_ref = 1
+    K_R0 <- pop_ref * 5.1446e-3 / h_ref #= 2654.6 at h_ref = 1
     tp_starts <- r0_targets / (frac_starts * K_R0)
 
     fit_starts <- list(
@@ -1330,14 +1330,14 @@ fit_one_hz <- function(hz_name, h_ref = H_REF, pop_ref = POP_REF,
         deaths = hz_data_weekly$deaths
     )
 
-    # ---- 9. Exploratory fit (4 params, reporting_rate fixed) ----
+    #---- 9. Exploratory fit (4 params, reporting_rate fixed) ----
 
     n_params <- 4
     explore_proposal <- matrix(0, n_params, n_params)
-    explore_proposal[1, 1] <- 0.02 # log_trans_prob
-    explore_proposal[2, 2] <- 0.08 # log_obs_size
-    explore_proposal[3, 3] <- 0.08 # log_E0
-    explore_proposal[4, 4] <- 0.10 # logit_frac_neff
+    explore_proposal[1, 1] <- 0.02 #log_trans_prob
+    explore_proposal[2, 2] <- 0.08 #log_obs_size
+    explore_proposal[3, 3] <- 0.08 #log_E0
+    explore_proposal[4, 4] <- 0.10 #logit_frac_neff
 
     cat("\n=== EXPLORATORY FIT ===\n")
     fit_explore <- chlaa_fit_pmcmc(
@@ -1359,7 +1359,7 @@ fit_one_hz <- function(hz_name, h_ref = H_REF, pop_ref = POP_REF,
     cat("Exploratory acceptance:", report_explore$acceptance_rate, "\n")
     print(report_explore$posterior_summary)
 
-    # ---- 10. Learn covariance and prepare production ----
+    #---- 10. Learn covariance and prepare production ----
 
     packer <- attr(fit_explore, "packer")
     d <- length(packer$names())
@@ -1378,7 +1378,7 @@ fit_one_hz <- function(hz_name, h_ref = H_REF, pop_ref = POP_REF,
     pars_warm <- fit_starts_stage1[[1]]
     for (nm in names(warm_vec)) pars_warm[[nm]] <- warm_vec[[nm]]
 
-    # Warm-start production from exploratory medians (same 4 params throughout)
+    #Warm-start production from exploratory medians (same 4 params throughout)
     fit_starts_stage2 <- chain_median_starts(fit_explore, template_pars = fit_starts[[1]])
 
     fit_packer_stage2 <- make_packer(fit_starts_stage2[[1]])
@@ -1401,7 +1401,7 @@ fit_one_hz <- function(hz_name, h_ref = H_REF, pop_ref = POP_REF,
     rm(fit_explore, report_explore, packer, pooled, pars_mat)
     gc()
 
-    # ---- 11. Production fit (4 params, reporting_rate fixed) ----
+    #---- 11. Production fit (4 params, reporting_rate fixed) ----
 
     cat("\n=== PRODUCTION FIT ===\n")
     fit <- chlaa_fit_pmcmc(
@@ -1423,8 +1423,8 @@ fit_one_hz <- function(hz_name, h_ref = H_REF, pop_ref = POP_REF,
     cat("Production acceptance:", report_prod$acceptance_rate, "\n")
     print(report_prod$posterior_summary)
 
-    # R-hat and ESS (proper multi-chain diagnostic)
-    pars_arr <- fit$pars # (param, iter, chain)
+    #R-hat and ESS (proper multi-chain diagnostic)
+    pars_arr <- fit$pars #(param, iter, chain)
     dimnames(pars_arr) <- list(attr(fit, "packer")$names(), NULL, NULL)
     draws_diag <- posterior::as_draws_array(aperm(pars_arr, c(2, 3, 1)))
     cat(sprintf("\n=== %s: R-hat and ESS ===\n", hz_name))
@@ -1451,7 +1451,7 @@ comparison <- purrr::map_dfr(fits, function(f) {
     tr_s <- chlaa_fit_trace(f$fit, burnin = 0.25, scale = "sampled")
     tp <- exp(tr_s |> dplyr::filter(parameter == "log_trans_prob") |> dplyr::pull(value))
     fn <- plogis(tr_s |> dplyr::filter(parameter == "logit_frac_neff") |> dplyr::pull(value))
-    R0_draws <- fn * 2654.6 * tp # elementwise, per draw
+    R0_draws <- fn * 2654.6 * tp #elementwise, per draw
     tibble::tibble(
         hz = f$hz, pop = f$pop,
         tp_med = median(tp), tp_lo = quantile(tp, 0.025), tp_hi = quantile(tp, 0.975),
@@ -1464,7 +1464,7 @@ comparison <- purrr::map_dfr(fits, function(f) {
 })
 print(comparison, width = Inf)
 
-# Sanity check: frac_neff draw range vs prior bound
+#Sanity check: frac_neff draw range vs prior bound
 cat("\n=== frac_neff draw ranges (should be >= plogis(-4.6) = 0.00990) ===\n")
 for (f in fits) {
     tr_s <- chlaa_fit_trace(f$fit, burnin = 0.25, scale = "sampled")
@@ -1482,10 +1482,10 @@ ggplot(comparison, aes(pop, tp_med)) +
     scale_y_log10() +
     labs(x = "Health zone population", y = "trans_prob (median, 95% CrI)")
 
-# ---- (a) Full comparison table (frac_hi, N_eff_med visible) ----
+#---- (a) Full comparison table (frac_hi, N_eff_med visible) ----
 print(comparison, width = Inf)
 
-# ---- (b) Posterior predictive plots per zone ----
+#---- (b) Posterior predictive plots per zone ----
 for (f in fits) {
     p <- f$p_fit + labs(title = sprintf("%s weekly cases (frac_neff)", f$hz))
     ggsave(file.path(fig_dir, sprintf("%s_neff_fit.png", f$hz)),
@@ -1496,10 +1496,10 @@ for (f in fits) {
     cat(sprintf("  -> saved %s_neff_fit.png\n", f$hz))
 }
 
-# ---- (c) Per-zone posterior summaries + R-hat/ESS ----
+#---- (c) Per-zone posterior summaries + R-hat/ESS ----
 for (f in fits) {
     cat(sprintf("\n=== %s posterior summary ===\n", f$hz))
-    # Natural-scale summary
+    #Natural-scale summary
     tr_s <- chlaa_fit_trace(f$fit, burnin = 0.25, scale = "sampled")
     tr_wide <- tr_s |>
         tidyr::pivot_wider(names_from = parameter, values_from = value)
@@ -1525,12 +1525,12 @@ for (f in fits) {
         )
     )
     print(summary_df, n = 4)
-    # R-hat and ESS (computed via posterior package)
+    #R-hat and ESS (computed via posterior package)
     cat("\nR-hat / ESS:\n")
     print(f$rhat_ess)
 }
 
-# ---- (d) Pairs plot: logit_frac_neff vs log_trans_prob ----
+#---- (d) Pairs plot: logit_frac_neff vs log_trans_prob ----
 pairs_data <- purrr::map_dfr(fits, function(f) {
     tr_s <- chlaa_fit_trace(f$fit, burnin = 0.25, scale = "sampled")
     tr_wide <- tr_s |>
@@ -1556,7 +1556,7 @@ ggsave(file.path(fig_dir, "neff_vs_tp_pairs.png"),
 print(p_pairs)
 
 
-# test g
+#test g
 budget <- purrr::map_dfr(fits, function(f) {
     RR <- 0.30
     tr <- chlaa_fit_trace(f$fit, burnin = 0.25, scale = "sampled") |>
@@ -1565,7 +1565,7 @@ budget <- purrr::map_dfr(fits, function(f) {
     N_eff <- frac * f$pop
     obs_total <- sum(f$observed$cases)
 
-    # model's own total + saturation, at the posterior median
+    #model's own total + saturation, at the posterior median
     p <- make_start(median(exp(tr$log_trans_prob)), RR, median(exp(tr$log_obs_size)),
         median(exp(tr$log_E0)),
         frac_neff = frac
