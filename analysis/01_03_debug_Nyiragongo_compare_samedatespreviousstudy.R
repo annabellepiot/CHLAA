@@ -17,7 +17,8 @@
 #   1. Load data and set up parameters with current defaults + interventions
 #   2. Exploratory fit (100 particles, 1000 steps, 3 chains)
 #   3. Learn covariance, warm-start from exploratory
-#   4. Production fit (200 particles, 10000 steps, 3 chains)
+#   4. Production fit (>=200 particles, 10000 steps, 3 chains; particle count
+#      adaptively bumped via a log-likelihood variance check)
 #   5. Diagnostics, plots, and save
 #=============================================================================
 
@@ -39,11 +40,15 @@ hz_name <- "nyiragongo"
 outbreak_start <- as.Date("2022-08-01")
 outbreak_end <- as.Date("2024-09-30")
 
-nyiragongo <- read_csv(file.path(data_dir, "IDSR_dataset.csv"), show_col_types = FALSE) |>
+#Read the full HZ series once (idsr_hz keeps pre-outbreak weeks for E0 seeding);
+#nyiragongo is the windowed outbreak used for fitting.
+idsr_hz <- read_csv(file.path(data_dir, "IDSR_dataset.csv"), show_col_types = FALSE) |>
   filter(hz == hz_name) |>
   mutate(date = as.Date(date)) |>
+  arrange(date)
+
+nyiragongo <- idsr_hz |>
   filter(date >= outbreak_start, date <= outbreak_end) |>
-  arrange(date) |>
   mutate(time = seq_len(n()) * 7L) |>
   select(date, time, cases, deaths, population)
 
@@ -60,7 +65,6 @@ H_REF <- 1.0
 POP_REF <- 516000
 RR_FIXED <- 0.30
 E0_MAX <- 800
-K_R0 <- POP_REF * 5.1446e-3 / H_REF
 
 #Quasi-equilibrium seeding
 seed_state_names <- c("E0", "A0", "M0", "Sev0", "Mu0", "Mt0", "Sevu0", "Sevt0", "C0")
@@ -195,12 +199,24 @@ n_prod <- 200L
 n_prod_steps <- 10000L
 seed_explore <- 42L
 seed_prod <- 123L
+variance_check_reps <- 20L
+variance_target <- 2
 
 fit_data <- nyiragongo |> select(time, cases, deaths)
 
-#Dynamic E0 initialization
+#Dynamic E0 initialization (matches 01_02: seed-row for larger outbreaks,
+#small-outbreak fallback otherwise)
 expected_reporting_rate <- 0.10
-E0_val <- ceiling(max(5, mean(nyiragongo$cases[1:min(3, nrow(nyiragongo))])) / expected_reporting_rate)
+total_cases <- sum(nyiragongo$cases)
+seed_date <- outbreak_start - 14
+seed_row <- idsr_hz |> filter(date <= seed_date) |> arrange(desc(date)) |> slice(1)
+if (total_cases < 50) {
+  E0_val <- max(5, ceiling(mean(nyiragongo$cases[1:min(3, nrow(nyiragongo))]) / expected_reporting_rate))
+} else if (nrow(seed_row) > 0 && seed_row$cases > 0) {
+  E0_val <- ceiling(seed_row$cases / expected_reporting_rate)
+} else {
+  E0_val <- ceiling(max(5, nyiragongo$cases[1]) / expected_reporting_rate)
+}
 E0_val <- min(E0_val, 0.9 * E0_MAX)
 E0_val <- max(10, E0_val)
 cat(sprintf("  Initial E0: %d\n", E0_val))
@@ -248,7 +264,7 @@ plot_case_fit <- function(fit, observed, title, seed, burnin = 0.25) {
     n_draws = 200,
     burnin = burnin,
     seed = seed,
-    dt = 1,
+    dt = 0.25,
     deterministic = FALSE
   )
   fit_cases <- fc |>
@@ -366,9 +382,21 @@ make_start <- function(trans_prob, obs_size, E0, frac_neff = 0.10) {
 
 # R0-based starting points (all 4 params) ----
 
+#trans_prob is exactly linear in R0 (contact_rate = 0 throughout), so a
+#unit-trans_prob probe through chlaa_r0() gives an exact per-chain inversion
+#(matches 01_02; no hardcoded R0->trans_prob constant).
 r0_targets  <- c(1.5, 2.5, 4.0)
 frac_starts <- c(0.10, 0.05, 0.20)
-tp_starts   <- r0_targets / (frac_starts * K_R0)
+tp_starts <- vapply(seq_along(frac_starts), function(i) {
+  N_i <- frac_starts[i] * pop_hz
+  h_i <- H_REF * (pop_hz / POP_REF)
+  probe_pars <- chlaa_parameters(
+    N = N_i, contact_rate = 0, contam_half_sat = h_i,
+    incubation_time = 4.845, duration_sym = 14.48,
+    seek_mild = 0.1, seek_severe = 0.85, trans_prob = 1
+  )
+  r0_targets[i] / chlaa_r0(probe_pars)
+}, numeric(1))
 
 starts <- list(
   make_start(tp_starts[1], 30, E0_val, frac_neff = frac_starts[1]),
@@ -392,19 +420,43 @@ explore_proposal[4, 4] <- 0.10  #logit_frac_neff
 
 fit_packer_stage1 <- make_packer(starts[[1]])
 
-fit_explore <- chlaa_fit_pmcmc(
-  data = fit_data,
-  pars = starts[[1]],
-  chain_pars = starts,
-  n_chains = length(starts),
-  n_particles = n_explore,
-  n_steps = n_explore_steps,
-  seed = seed_explore,
-  prior = fit_prior,
-  packer = fit_packer_stage1,
-  proposal_var = explore_proposal,
-  obs_interval = 7,
-  time_start = time_start
+fit_explore <- tryCatch(
+  {
+    chlaa_fit_pmcmc(
+      data = fit_data,
+      pars = starts[[1]],
+      chain_pars = starts,
+      n_chains = length(starts),
+      n_particles = n_explore,
+      dt = 0.25,
+      n_steps = n_explore_steps,
+      seed = seed_explore,
+      prior = fit_prior,
+      packer = fit_packer_stage1,
+      proposal_var = explore_proposal,
+      obs_interval = 7,
+      time_start = time_start
+    )
+  },
+  error = function(e) {
+    cat("Exploratory fit failed:", conditionMessage(e), "\n")
+    cat("Attempting with more particles...\n")
+    chlaa_fit_pmcmc(
+      data = fit_data,
+      pars = starts[[1]],
+      chain_pars = starts,
+      n_chains = length(starts),
+      n_particles = max(n_explore, 200),
+      dt = 0.25,
+      n_steps = n_explore_steps,
+      seed = seed_explore,
+      prior = fit_prior,
+      packer = fit_packer_stage1,
+      proposal_var = explore_proposal,
+      obs_interval = 7,
+      time_start = time_start
+    )
+  }
 )
 
 report_explore <- chlaa_fit_report(fit_explore, burnin = 0.25, thin = 2)
@@ -457,23 +509,121 @@ for (nm in packer$names()) {
 rm(fit_explore, report_explore, packer, pooled)
 gc()
 
-# Production fit (200 particles, 10000 steps, 3 chains) ----
+# Production fit (>=200 particles adaptive, 10000 steps, 3 chains) ----
 
 cat("\n=== PRODUCTION FIT ===\n")
 
-fit <- chlaa_fit_pmcmc(
-  data = fit_data,
-  pars = pars_warm,
-  chain_pars = fit_starts_stage2,
-  n_chains = length(fit_starts_stage2),
-  n_particles = n_prod,
-  n_steps = n_prod_steps,
-  seed = seed_prod,
-  prior = fit_prior,
-  packer = fit_packer_stage2,
-  proposal_var = prod_proposal,
-  obs_interval = 7,
-  time_start = time_start
+fit <- tryCatch(
+  {
+    chlaa_fit_pmcmc(
+      data = fit_data,
+      pars = pars_warm,
+      chain_pars = fit_starts_stage2,
+      n_chains = length(fit_starts_stage2),
+      n_particles = n_prod,
+      dt = 0.25,
+      n_steps = n_prod_steps,
+      seed = seed_prod,
+      prior = fit_prior,
+      packer = fit_packer_stage2,
+      proposal_var = prod_proposal,
+      obs_interval = 7,
+      time_start = time_start
+    )
+  },
+  error = function(e) {
+    cat("Production fit failed:", conditionMessage(e), "\n")
+    cat("Attempting with fewer steps...\n")
+    chlaa_fit_pmcmc(
+      data = fit_data,
+      pars = pars_warm,
+      chain_pars = fit_starts_stage2,
+      n_chains = length(fit_starts_stage2),
+      n_particles = n_prod,
+      dt = 0.25,
+      n_steps = max(2000, n_prod_steps %/% 2),
+      seed = seed_prod,
+      prior = fit_prior,
+      packer = fit_packer_stage2,
+      proposal_var = prod_proposal,
+      obs_interval = 7,
+      time_start = time_start
+    )
+  }
+)
+
+# Particle-count / log-likelihood variance check (matches 01_02) ----
+#pMCMC targets the exact posterior only if Var[log p-hat(y|theta)] at the
+#posterior mode is small (approx 1-2). n_prod is fixed, so check it here and
+#bump particles + refit if needed.
+
+packer_prod <- attr(fit, "packer")
+n_samples_prod <- dim(fit$pars)[2]
+start_idx_prod <- floor(0.25 * n_samples_prod) + 1
+n_ch_prod <- dim(fit$pars)[3]
+pooled_prod <- do.call(rbind, lapply(seq_len(n_ch_prod), function(k) {
+  t(fit$pars[, start_idx_prod:n_samples_prod, k])
+}))
+colnames(pooled_prod) <- packer_prod$names()
+theta_median_prod <- apply(pooled_prod, 2, median)
+pars_at_median <- packer_prod$unpack(theta_median_prod)
+
+particle_grid <- unique(pmax(1, round(n_prod * c(0.5, 1, 2, 4))))
+
+variance_by_particles <- vapply(particle_grid, function(np) {
+  ll <- vapply(seq_len(variance_check_reps), function(r) {
+    chlaa_loglik_at(
+      data = fit_data, pars = pars_at_median,
+      n_particles = np, seed = 10000 * np + r, dt = 0.25,
+      obs_interval = 7, time_start = time_start
+    )
+  }, numeric(1))
+  var(ll)
+}, numeric(1))
+names(variance_by_particles) <- as.character(particle_grid)
+
+cat("\n=== Var[log-likelihood] vs particle count (at posterior median) ===\n")
+print(data.frame(n_particles = particle_grid, var_loglik = variance_by_particles))
+
+var_at_n_prod <- unname(variance_by_particles[as.character(n_prod)])
+n_particles_used <- n_prod
+
+if (!is.na(var_at_n_prod) && var_at_n_prod > variance_target) {
+  meets_target <- particle_grid[variance_by_particles <= variance_target]
+  if (length(meets_target) > 0) {
+    n_particles_used <- min(meets_target)
+    cat(sprintf(
+      "WARNING: Var[log-lik] at n_prod=%d = %.2f > target %.2f. Refitting production stage at n_particles=%d.\n",
+      n_prod, var_at_n_prod, variance_target, n_particles_used
+    ))
+  } else {
+    n_particles_used <- max(particle_grid)
+    cat(sprintf(
+      "WARNING: Var[log-lik] exceeds target %.2f at ALL tested particle counts. Using largest tested (%d).\n",
+      variance_target, n_particles_used
+    ))
+  }
+  fit <- chlaa_fit_pmcmc(
+    data = fit_data,
+    pars = pars_warm,
+    chain_pars = fit_starts_stage2,
+    n_chains = length(fit_starts_stage2),
+    n_particles = n_particles_used,
+    dt = 0.25,
+    n_steps = n_prod_steps,
+    seed = seed_prod,
+    prior = fit_prior,
+    packer = fit_packer_stage2,
+    proposal_var = prod_proposal,
+    obs_interval = 7,
+    time_start = time_start
+  )
+}
+
+variance_check_table <- tibble::tibble(
+  hz = hz_name,
+  n_particles = particle_grid,
+  var_loglik = as.numeric(variance_by_particles)
 )
 
 report_prod <- chlaa_fit_report(fit, burnin = 0.25, thin = 2)
@@ -535,6 +685,9 @@ fit_artifact <- list(
   total_cases = sum(nyiragongo$cases),
   n_weeks = nrow(nyiragongo),
   fitted_parameters = natural_fit_names,
+  variance_check = variance_check_table,
+  n_particles_used = n_particles_used,
+  loglik_var_target = variance_target,
   timestamp = Sys.time()
 )
 
@@ -647,6 +800,7 @@ if (interactive()) {
     chain_pars    = quick_starts,
     n_chains      = 1L,
     n_particles   = 10L,
+    dt            = 0.25,
     n_steps       = 200L,
     seed          = 99L,
     prior         = fit_prior,
