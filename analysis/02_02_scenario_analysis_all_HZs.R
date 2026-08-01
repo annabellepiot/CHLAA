@@ -267,6 +267,43 @@ run_scenarios_hz <- function(hz_name,
         dt = 0.25
     )
 
+    #---- 7b. Per-draw endpoint burdens (for the relative/% composite figure) ----
+    #chlaa_forecast_scenarios_from_fit() summarises and then discards its
+    #per-draw matrices, but a statistically valid "% vs fitted response" must be
+    #formed as a ratio per draw (numerator and denominator are strongly
+    #correlated across draws, so combining marginal quantiles would misstate the
+    #CI). Re-run the same internal per-draw simulator with the identical draw
+    #indices the forecast used (n_particles = 1, per-draw seed = seed + i shared
+    #across scenarios), so these cumulative burdens are the exact CRN-paired
+    #values underlying the cached quantiles above.
+    draws_mat <- chlaa:::.chlaa_fit_selected_draws_matrix(fit, burnin = burnin, thin = 1)
+    fc_idx <- attr(scenario_fc, "draw_indices")
+    cum_vars <- c("cum_symptoms", "cum_deaths")
+    sim_draw_burden <- function(modify) {
+        mats <- chlaa:::.chlaa_simulate_posterior_matrix(
+            draws = draws_mat, idx = fc_idx, fit = fit, base_pars = base_pars,
+            modify = modify, time = scenario_time, vars_use = cum_vars,
+            include_cases = FALSE, obs_model = "nbinom", obs_interval = 7,
+            dt = 0.25, seed = seed, n_particles = 1, n_threads = 1,
+            deterministic = FALSE
+        )
+        #each mats[[v]] is [n_draws x length(scenario_time)] (n_particles = 1)
+        setNames(lapply(cum_vars, function(v) mats[[v]]), cum_vars)
+    }
+    scenario_draw_burden <- list(
+        times        = scenario_time,
+        draw_indices = fc_idx,
+        burden       = c(
+            list(fitted_response = sim_draw_burden(list())),
+            setNames(
+                lapply(scenarios, function(s) sim_draw_burden(s$modify)),
+                vapply(scenarios, `[[`, character(1), "name")
+            )
+        )
+    )
+    if (verbose) cat("Per-draw endpoint burdens stored for",
+        length(scenario_draw_burden$burden), "configs.\n")
+
     #---- 8. Scenario figures ----
 
     #Figure 1: Absolute scenario forecasts (weekly cases)
@@ -340,9 +377,11 @@ run_scenarios_hz <- function(hz_name,
     #RDS
     scenario_output <- list(
         hz_name = hz_name,
+        population = pop_hz,
         scenario_summary = scenario_summary,
         scenario_comparison = scenario_comparison,
         scenario_forecasts = scenario_fc,
+        scenario_draw_burden = scenario_draw_burden,
         scenarios_defined = vapply(scenarios, `[[`, character(1), "name"),
         trigger_time = trigger_time,
         trigger_threshold = trigger_threshold,
@@ -550,35 +589,84 @@ if (length(scenario_rds_files) == 0) {
     if (length(keep_hz) == 0) {
         cat("No HZs have a full scenario set - skipping composite figure.\n")
     } else {
-        #For each retained HZ, snap to the scenario_time grid point closest
-        #to 365 days since outbreak start (grids are weekly and horizons
-        #vary by HZ, so the exact snapped day can differ slightly by HZ)
-        target_day <- 365
+        #Score each HZ at the END of its modelled horizon (last observed week +
+        #182 days / 26 weeks), matching the horizon used by
+        #05_Shapley_analysis.R. This puts every zone on a common horizon
+        #RELATIVE TO ITS OWN OUTBREAK - a constant 182-day post-observation
+        #window - instead of a fixed 365 days since start, which scored short
+        #outbreaks far past their data and long outbreaks well before their
+        #horizon end (a differential-extrapolation bias across HZs).
 
+        #Relative metric: each scenario's excess burden per 100,000 TOTAL
+        #(census) population, so values are absolute rates comparable across HZs
+        #and to other studies (the standard epidemiological cross-setting
+        #normalisation). The excess (scenario - fitted) is formed PER DRAW from
+        #the stored per-draw endpoint burdens (scenario_draw_burden), then scaled
+        #by 1e5/population and only then summarised - the scenario and baseline
+        #burdens are strongly correlated across draws, so combining marginal
+        #quantiles would misstate the CI. NOTE cum_symptoms is modelled TRUE
+        #symptomatic infections (not surveillance-reported, so ~1/reporting_rate
+        #larger); cum_deaths is modelled deaths, governed by the model's
+        #structural CFR for zones with little observed death data. Same 5-number
+        #summary (2.5/25/50/75/97.5%) as the forecast/Shapley figures.
+        pct_probs <- c(0.025, 0.25, 0.5, 0.75, 0.975)
+        #Census population per HZ for the per-100k denominator: prefer the value
+        #stored in the scenario cache, else fall back to the fitted r0_table
+        #(from 01_05). IDSR is not read here as it is large and slow.
+        pop_of <- function(hz) {
+            p <- scenario_objs[[hz]][["population"]]
+            if (is.null(p) || is.na(p)) {
+                r0f <- file.path(tables_dir, sprintf("%s_r0_table.csv", hz))
+                if (!file.exists(r0f)) {
+                    stop("Population for ", hz, " is not in the scenario cache and ",
+                         basename(r0f), " was not found - run 01_05 (or re-run ",
+                         "run_scenarios_hz to refresh the cache) so the per-100k ",
+                         "normalisation has a denominator.")
+                }
+                p <- read.csv(r0f)$pop[1]
+            }
+            p
+        }
         all_fc <- lapply(keep_hz, function(hz) {
-            fc <- scenario_objs[[hz]]$scenario_forecasts
-            snap_time <- fc$time[which.min(abs(unique(fc$time) - target_day))]
-            fc %>%
-                filter(
-                    type == "difference",
-                    scenario %in% full_scenario_set,
-                    variable %in% c("cum_symptoms", "cum_deaths"),
-                    time == snap_time
-                ) %>%
-                mutate(hz = hz, snap_time = snap_time)
+            sdb <- scenario_objs[[hz]]$scenario_draw_burden
+            if (is.null(sdb)) {
+                stop("scenario_draw_burden missing for ", hz,
+                     " - re-run run_scenarios_hz() to refresh this cache.")
+            }
+            snap_i    <- length(sdb$times)   #horizon endpoint = observed end + 182 days
+            snap_time <- sdb$times[snap_i]
+            pop       <- pop_of(hz)
+            base_b    <- sdb$burden[["fitted_response"]]
+            do.call(rbind, lapply(full_scenario_set, function(sc) {
+                do.call(rbind, lapply(c("cum_symptoms", "cum_deaths"), function(v) {
+                    excess  <- sdb$burden[[sc]][[v]][, snap_i] - base_b[[v]][, snap_i]
+                    per100k <- excess / pop * 1e5
+                    qs      <- stats::quantile(per100k, pct_probs, na.rm = TRUE)
+                    data.frame(
+                        scenario  = sc,
+                        variable  = v,
+                        hz        = hz,
+                        snap_time = snap_time,
+                        q0p025 = as.numeric(qs[1]), q0p25 = as.numeric(qs[2]),
+                        q0p5   = as.numeric(qs[3]), q0p75 = as.numeric(qs[4]),
+                        q0p975 = as.numeric(qs[5]),
+                        stringsAsFactors = FALSE
+                    )
+                }))
+            }))
         })
 
         composite_dat <- bind_rows(all_fc)
 
         snap_report <- composite_dat %>% distinct(hz, snap_time)
-        cat("Snapped time point (days since outbreak start) per HZ:\n")
+        cat("Horizon endpoint (days since outbreak start; = observed end + 182) per HZ:\n")
         for (i in seq_len(nrow(snap_report))) {
             cat(sprintf("  %-14s day %s\n", snap_report$hz[i], snap_report$snap_time[i]))
         }
 
-        #---- Health zone ordering: by no-intervention excess cases,
-        #      reused across every facet for comparability. Ascending order
-        #      so the largest excess ends up plotted at the top. ----
+        #---- Health zone ordering: by no-intervention excess cases per 100,000,
+        #      reused across every facet for comparability. Ascending order so
+        #      the largest excess ends up plotted at the top. ----
         hz_rank <- composite_dat %>%
             filter(scenario == "no_interventions", variable == "cum_symptoms") %>%
             arrange(q0p5) %>%
@@ -600,9 +688,9 @@ if (length(scenario_rds_files) == 0) {
             "no_interventions"         = "No interventions"
         )
         scenario_colours_all <- c(
-            "aa_response"              = "#cb86ff",
+            "aa_response"              = "#f7776d",
             "aa_response_plus_vaccine" = "#88b517",
-            "no_interventions"         = "#f7776d"
+            "no_interventions"         = "#cb86ff"
         )
         baseline_colour_all <- "#0abfc6"
         variable_facet_labels <- c(cum_symptoms = "Cases", cum_deaths = "Deaths")
@@ -619,7 +707,9 @@ if (length(scenario_rds_files) == 0) {
         #hjust instead of vjust since the boxes are now horizontal)
         composite_dat <- composite_dat %>%
             mutate(
-                num_label   = paste0(round(q0p5), " (", round(q0p025), " to ", round(q0p975), ")"),
+                num_label   = paste0(formatC(round(q0p5), format = "d", big.mark = ","),
+                                      " (", formatC(round(q0p025), format = "d", big.mark = ","),
+                                      " to ", formatC(round(q0p975), format = "d", big.mark = ","), ")"),
                 label_x     = ifelse(q0p5 >= 0, q0p975, q0p025),
                 label_hjust = ifelse(q0p5 >= 0, -0.08, 1.08)
             )
@@ -654,13 +744,21 @@ if (length(scenario_rds_files) == 0) {
                       .groups = "drop") %>%
             mutate(xmin = -half, xmax = half)
 
+        metric_note <- paste0(
+            "Cases = modelled true symptomatic infections (not surveillance-reported); deaths = modelled counts; ",
+            "both per 100,000 total (census) population."
+        )
         caption_txt <- if (length(dropped_hz) > 0) {
-            sprintf(
-                "Excludes %s: response trigger (>=174 cases/3wk for Kirotshe/Nyiragongo/Goma, >=63 cases/3wk\nfor other zones) never reached, so no AA response scenario was modelled.",
-                paste(hz_label(dropped_hz), collapse = ", ")
+            paste(
+                metric_note,
+                sprintf(
+                    "Excludes %s: response trigger (>=174 cases/3wk for Kirotshe/Nyiragongo/Goma, >=63 cases/3wk for other\nzones) never reached, so no AA response scenario was modelled.",
+                    paste(hz_label(dropped_hz), collapse = ", ")
+                ),
+                sep = "\n"
             )
         } else {
-            NULL
+            metric_note
         }
 
         #Legend key for the fitted response: a dashed line on a light shaded
@@ -715,11 +813,11 @@ if (length(scenario_rds_files) == 0) {
                               name = "Scenario") +
             scale_colour_manual(name = NULL, values = c("Fitted response" = baseline_colour_all)) +
             labs(
-                x = "Excess cumulative count (vs fitted response)",
+                x = "Excess per 100,000 population (vs fitted response)",
                 y = NULL,
                 title = "Scenario impact across health zones",
                 subtitle = sprintf(
-                    "Excess cumulative cases and deaths ~365 days since outbreak start (n = %d health zones)",
+                    "Excess cases and deaths per 100,000 total population (vs fitted response) at the modelled horizon (last observed week + 182 days) (n = %d health zones)",
                     length(keep_hz)
                 ),
                 caption = caption_txt
