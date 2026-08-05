@@ -109,7 +109,7 @@ generate_fit_data <- function(rds, seed = 42, n_draws = 1000) {
     n_draws = n_draws,
     burnin = 0.25,
     seed = seed,
-    dt = 1,
+    dt = 0.25,
     deterministic = FALSE
   )
 

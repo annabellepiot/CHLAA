@@ -417,7 +417,7 @@ crps_export <- data.frame(
   "Max R̂"           = crps_res$max_rhat,
   "Min ESS"               = crps_res$min_ess,
   "Status"                = as.character(crps_res$status),
-  "CRPS (log)"            = crps_res$crps_log,
+  "CRPS (log1p scale)"    = crps_res$crps_log,
   "PI coverage 50% / 95%" = sprintf("%.2f / %.2f", crps_res$cover_50, crps_res$cover_95),
   check.names = FALSE
 )
@@ -428,8 +428,9 @@ write.csv(crps_export,
 
 cat("\n=== CRPS goodness of fit ===\n")
 print(crps_export, row.names = FALSE)
-cat("\nSorted by convergence status then CRPS (log); lower CRPS = better fit,\n",
-    "comparable across zones.\n", sep = "")
+cat("\nSorted by convergence status then CRPS (log1p scale); lower CRPS = better fit,\n",
+    "comparable across zones. This is CRPS scored on log1p-transformed data, not a\n",
+    "log predictive score - no log-score/log-likelihood scoring rule is computed here.\n", sep = "")
 cat("Convergence tiers (Vehtari et al. 2021):\n",
     "  Pass     R-hat <= 1.01 AND min ESS >= 400\n",
     "  Marginal R-hat <= 1.05 AND min ESS >= 100\n",

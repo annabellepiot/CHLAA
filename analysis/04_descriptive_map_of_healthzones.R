@@ -181,13 +181,34 @@ insets <- tibble::tribble(
 )
 MARGIN <- 1.6 #circle radius = half study-zone extent * MARGIN
 
-#Zone labels sit at each territory INSIDE its circle. The 5 clustered
-#Kinshasa urban zones share one group label; everything else is per-zone.
+#Second-level "urban zoom" panel: a circular inset LEFT of the Kinshasa
+#locator inset that enlarges just the 5 clustered urban zones (too small
+#to read in the province inset). Its own circle, grey context map, shared
+#colour scale; fed by an arrow from a small "lens" circle drawn around the
+#cluster inside the Kinshasa province inset.
+UZ_cx <- -15 #new-panel centre (canvas units): left of, and above, the Kinshasa
+UZ_cy <- 40 #inset, so the connector arrow curves up-left (compact, saves width)
+UZ_r <- 13 #new-panel circle radius
+MARGIN_URBAN <- 2.0 #circle radius = max anchor distance * MARGIN_URBAN
+
+#Zone labels sit at each territory INSIDE its circle. In the Kinshasa
+#province inset only Maluku 1 is labelled; the 5 urban zones are labelled
+#individually on the urban-zoom panel instead.
 KIN_URBAN <- c("bumbu", "kingabwa", "kokolo", "limete", "ngiri_ngiri")
-#Fine-tune individual zone-label anchors (canvas units), keyed by id.
+#Fine-tune individual zone-label anchors (canvas units), keyed by id. The
+#`uz_*` ids nudge the 5 urban labels apart on the zoom panel.
+#The 5 urban labels are pushed off their (clustered) anchors into the
+#surrounding space and connected by thin leader lines. Kokolo/Ngiri Ngiri/
+#Bumbu fan out left; Limete/Kingabwa up-right.
 zone_nudge <- tibble::tribble(
     ~id, ~dx, ~dy,
-    "urban_cluster", -3, 5
+    "uz_kokolo", -2.3, 2.8,
+    "uz_ngiri_ngiri", 4.5, -6.3,
+    "uz_bumbu", -2.9, -3.3,
+    "uz_limete", 0.9, 6.4,
+    "uz_kingabwa", 2.85, 3.9,
+    "kirotshe", 0, 2.5, #nudge the Nord-Kivu label up slightly
+    "goma", -2, -5 #push Goma's label off its tiny territory (leader added)
 )
 
 ##---- Build each inset (clip province context to a circle) ----------
@@ -219,15 +240,18 @@ for (i in seq_len(nrow(insets))) {
     border_df[[i]] <- circ_df(cx, cy, r, grp = pr) #dark outline
 
     #Per-zone labels, anchored at each territory (point-on-surface of the
-    #clipped, transformed polygon). Kinshasa keeps the 5 urban zones as one
-    #group; Maluku 1 and all other zones are labelled individually.
+    #clipped, transformed polygon). In the Kinshasa inset only Maluku 1 is
+    #labelled - the 5 urban zones are labelled on the urban-zoom panel, and
+    #a "lens" circle round their cluster feeds the arrow to that panel.
     study_clip <- clip_t %>% filter(is_study)
     if (pr == "Kinshasa") {
-        groups <- list(
-            list(id = "maluku_i", hz = "maluku_i", text = "Maluku 1"),
-            list(id = "urban_cluster", hz = KIN_URBAN,
-                text = "Bumbu, Kingabwa,\nKokolo, Limete,\nNgiri Ngiri")
-        )
+        groups <- list(list(id = "maluku_i", hz = "maluku_i", text = "Maluku 1"))
+        #Lens circle (Kinshasa-inset canvas coords) enclosing the 5 urban zones
+        urb <- study_clip %>% filter(hz %in% KIN_URBAN)
+        ub <- st_bbox(urb)
+        lens_cx <- mean(ub[c("xmin", "xmax")])
+        lens_cy <- mean(ub[c("ymin", "ymax")])
+        lens_r <- 0.5 * max(ub["xmax"] - ub["xmin"], ub["ymax"] - ub["ymin"]) * 1.35
     } else {
         groups <- lapply(sort(unique(study_clip$hz)), function(h)
             list(id = h, hz = h, text = pretty_hz(h)))
@@ -252,14 +276,69 @@ for (i in seq_len(nrow(insets))) {
         curv = insets$curv[i]
     )
 }
+
+##---- Urban-zoom panel (second-level zoom on the 5 Kinshasa zones) ---
+#Same build as an inset, but focused on just KIN_URBAN so the tiny city
+#zones fill the circle. Surrounding zones stay grey; the 5 are coloured
+#on the shared scale and labelled individually.
+urban <- zones %>% filter(is_study, PROVINCE == "Kinshasa", hz %in% KIN_URBAN)
+#Centre on the 5 zones' label anchors, not the union bbox: a thin southern
+#spur inflates the bbox and would push the cluster up into a corner. This
+#keeps the five zones centred and filling the circle.
+uanch <- suppressWarnings(st_coordinates(st_point_on_surface(st_geometry(urban))))
+ufcx <- mean(uanch[, 1])
+ufcy <- mean(uanch[, 2])
+ufr <- max(sqrt((uanch[, 1] - ufcx)^2 + (uanch[, 2] - ufcy)^2)) * MARGIN_URBAN
+ucirc <- circ_poly(ufcx, ufcy, ufr)
+uclip <- suppressWarnings(st_intersection(zones, ucirc))
+uclip <- uclip[!st_is_empty(st_geometry(uclip)), ]
+uclip <- suppressWarnings(st_collection_extract(uclip, "POLYGON"))
+uclip_t <- aff(uclip, ufcx, ufcy, UZ_r / ufr, UZ_cx, UZ_cy)
+
+j <- length(inset_zones) + 1L
+inset_zones[[j]] <- uclip_t
+disc_df[[j]] <- circ_df(UZ_cx, UZ_cy, UZ_r, grp = "urban_zoom") #white backing
+border_df[[j]] <- circ_df(UZ_cx, UZ_cy, UZ_r, grp = "urban_zoom") #dark outline
+
+#Individual labels for the 5 urban zones (point-on-surface of each polygon)
+uz_study <- uclip_t %>% filter(is_study, hz %in% KIN_URBAN)
+label_df[[j]] <- bind_rows(lapply(KIN_URBAN, function(h) {
+    gg <- uz_study %>% filter(hz == h)
+    if (nrow(gg) == 0) {
+        return(NULL)
+    }
+    pt <- st_coordinates(st_point_on_surface(st_union(st_geometry(gg))))
+    tibble(id = paste0("uz_", h), x = pt[1], y = pt[2], label = pretty_hz(h))
+}))
+
+#Lens circle round the cluster in the Kinshasa inset (drawn as a border).
+border_df[[j + 1L]] <- circ_df(lens_cx, lens_cy, lens_r, grp = "urban_lens")
+#Connector arrow from the lens edge to the urban-zoom panel edge. This one
+#starts INSIDE the Kinshasa disc, so it is drawn as its own late layer (over
+#the zones) rather than via arrow_df, which is drawn behind the discs.
+adx <- UZ_cx - lens_cx
+ady <- UZ_cy - lens_cy
+ad <- sqrt(adx^2 + ady^2)
+urban_arrow <- tibble(
+    x = lens_cx + adx / ad * lens_r, y = lens_cy + ady / ad * lens_r,
+    xend = UZ_cx - adx / ad * UZ_r, yend = UZ_cy - ady / ad * UZ_r,
+    curv = 0.30
+)
+
 inset_zones <- do.call(rbind, inset_zones)
 disc_df <- do.call(rbind, disc_df)
 border_df <- do.call(rbind, border_df)
 label_df <- do.call(rbind, label_df) %>%
     left_join(zone_nudge, by = "id") %>%
     mutate(
+        ax = x, ay = y, #keep anchor for leader lines
         x = x + coalesce(dx, 0), y = y + coalesce(dy, 0)
     )
+#Leader lines from anchor -> nudged label: the 5 urban zones, plus Goma (a
+#tiny zone whose label would otherwise cover its whole territory).
+LEADER_IDS <- c(paste0("uz_", KIN_URBAN), "goma")
+leader_df <- label_df %>% filter(id %in% LEADER_IDS)
+urban_lab <- label_df %>% filter(grepl("^uz_", id))
 arrow_df <- do.call(rbind, arrow_df)
 
 #Curved connector arrows: one geom_curve per arrow so curvature can vary
@@ -271,6 +350,14 @@ arrow_layers <- lapply(seq_len(nrow(arrow_df)), function(i) {
     )
 })
 
+#Lens -> urban-zoom arrow, same style but drawn as a late layer (its tail
+#sits inside the Kinshasa disc, so it must render over the zones).
+urban_arrow_layer <- geom_curve(
+    data = urban_arrow, aes(x = x, y = y, xend = xend, yend = yend),
+    curvature = urban_arrow$curv, ncp = 12, colour = "grey40",
+    linewidth = 0.55, arrow = arrow(length = unit(0.22, "cm"), type = "closed")
+)
+
 ##---- Shared colour scale (ColorBrewer YlGnBu, middle 80%) ----------
 #Sequential yellow -> green -> blue (low -> high). Trim the lightest and
 #darkest 10% so the extremes aren't near-white / near-black.
@@ -280,7 +367,7 @@ fill_scale <- scale_fill_gradientn(
     colours = ylgnbu_mid, name = "Cumulative attack rate\n(per 100,000)",
     labels = comma, limits = c(0, max(zones$ar_100k, na.rm = TRUE)),
     guide = guide_colourbar(
-        barwidth = 13, barheight = 0.8, title.position = "top",
+        barwidth = 15, barheight = 1.0, title.position = "top",
         title.hjust = 0.5
     )
 )
@@ -301,7 +388,7 @@ p <- ggplot() +
     ) +
     geom_label(
         data = prov_anchor, aes(px + ndx, py + ndy, label = province),
-        size = 4.8, fontface = "bold", colour = "grey15", family = FONT,
+        size = 5.6, fontface = "bold", colour = "grey15", family = FONT,
         fill = "white", linewidth = 0.25, label.padding = unit(0.16, "lines")
     ) +
     #curved connector arrows
@@ -320,35 +407,44 @@ p <- ggplot() +
         data = border_df, aes(x, y, group = grp), fill = NA,
         colour = "grey30", linewidth = 0.6
     ) +
+    #lens -> urban-zoom arrow, over the zones so it reads from the lens
+    urban_arrow_layer +
+    #leader lines connecting the 5 urban labels to their (clustered) zones
+    geom_segment(
+        data = leader_df, aes(x = ax, y = ay, xend = x, yend = y),
+        colour = "grey40", linewidth = 0.6
+    ) +
+    #province / larger-zone labels
     geom_label(
-        data = label_df, aes(x, y, label = label),
-        size = 4.2, fontface = "bold", colour = "grey15", family = FONT,
+        data = label_df %>% filter(!grepl("^uz_", id)), aes(x, y, label = label),
+        size = 4.9, fontface = "bold", colour = "grey15", family = FONT,
         fill = alpha("white", 0.82), linewidth = 0.2, lineheight = 0.9,
         label.padding = unit(0.12, "lines")
     ) +
+    #5 urban-zone labels (slightly smaller; they sit close together)
+    geom_label(
+        data = urban_lab, aes(x, y, label = label),
+        size = 4.9, fontface = "bold", colour = "grey15", family = FONT,
+        fill = alpha("white", 0.9), linewidth = 0.2, lineheight = 0.9,
+        label.padding = unit(0.1, "lines")
+    ) +
     fill_scale +
     coord_sf(
-        xlim = c(-2, 90), ylim = c(2, 96), expand = FALSE,
+        xlim = c(-30, 90), ylim = c(2, 96), expand = FALSE,
         crs = CANVAS_CRS, datum = NA
-    ) +
-    labs(
-        title = "Cholera cumulative attack rate by health zone, 2025",
-        subtitle = "Cumulative cases per 100,000 population (IDSR, epi-year 2025)"
     ) +
     theme_void(base_size = 13, base_family = FONT) +
     theme(
-        plot.title = element_text(face = "bold", size = 17),
-        plot.subtitle = element_text(size = 12, colour = "grey30"),
-        legend.title = element_text(size = 12),
-        legend.text = element_text(size = 11),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 13),
         legend.position = "inside",
-        legend.position.inside = c(0.42, 0.40),
+        legend.position.inside = c(0.575, 0.44),
         legend.direction = "horizontal",
         legend.background = element_rect(fill = alpha("white", 0.7), colour = NA),
         plot.margin = margin(8, 8, 8, 8)
     )
 
 out_png <- file.path(fig_dir, "healthzone_attack_rate_map_2025.png")
-ggsave(out_png, p, width = 12, height = 12, dpi = 300, bg = "white")
+ggsave(out_png, p, width = 15, height = 12, dpi = 300, bg = "white")
 cat("Saved map to:", out_png, "\n")
 cat("Saved table to:", file.path(out_dir, "healthzone_attack_rate_2025.csv"), "\n")
