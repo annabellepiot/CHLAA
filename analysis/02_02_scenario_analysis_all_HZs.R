@@ -71,7 +71,7 @@ dir.create(tables_dir, showWarnings = FALSE, recursive = TRUE)
 run_scenarios_hz <- function(hz_name,
                              trigger_threshold = if (hz_name %in% c("kirotshe", "nyiragongo", "goma")) 174 else 63,
                              campaign_days = 28,
-                             vax_coverage = 0.20,
+                             vax_coverage = 0.52,
                              n_draws = 60,
                              n_particles_summary = 50,
                              burnin = 0.25,
@@ -683,8 +683,8 @@ if (length(scenario_rds_files) == 0) {
         #      02_01_scenario_workflow.R's palette) ----
         scenario_order_all <- c("aa_response", "aa_response_plus_vaccine", "no_interventions")
         scenario_facet_labels <- c(
-            "aa_response"              = "AA response",
-            "aa_response_plus_vaccine" = "AA response + vaccination",
+            "aa_response"              = "Timely AA",
+            "aa_response_plus_vaccine" = "Timely AA + vaccination",
             "no_interventions"         = "No interventions"
         )
         scenario_colours_all <- c(
@@ -752,7 +752,7 @@ if (length(scenario_rds_files) == 0) {
             paste(
                 metric_note,
                 sprintf(
-                    "Excludes %s: response trigger (>=174 cases/3wk for Kirotshe/Nyiragongo/Goma, >=63 cases/3wk for other\nzones) never reached, so no AA response scenario was modelled.",
+                    "Excludes %s: response trigger (>=174 cases/3wk for Kirotshe/Nyiragongo/Goma, >=63 cases/3wk for other\nzones) never reached, so no Timely AA scenario was modelled.",
                     paste(hz_label(dropped_hz), collapse = ", ")
                 ),
                 sep = "\n"
