@@ -73,7 +73,7 @@ run_scenarios_hz <- function(hz_name,
                              trigger_threshold = if (hz_name %in% c("kirotshe", "nyiragongo", "goma")) 174 else 63,
                              campaign_days = 28,
                              vax_coverage = 0.52,
-                             n_draws = 60,
+                             n_draws = 100,
                              n_particles_summary = 50,
                              burnin = 0.25,
                              seed = 12,
@@ -1040,7 +1040,7 @@ zero_intervention_pars <- function(base_pars) {
 
 #Computes (and caches to rds_dir) the 6 add-one-in scenario forecasts for
 #one HZ. Set force = TRUE to recompute even if a cached file exists.
-compute_intervention_contributions_hz <- function(hz_name, n_draws = 60, burnin = 0.25,
+compute_intervention_contributions_hz <- function(hz_name, n_draws = 100, burnin = 0.25,
                                                    seed = 21, verbose = TRUE, force = FALSE) {
     out_path <- file.path(rds_dir, sprintf("%s_intervention_contributions.rds", hz_name))
     fit_path <- file.path(rds_dir, sprintf("%s_fit.rds", hz_name))
