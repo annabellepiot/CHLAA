@@ -24,6 +24,7 @@ library(chlaa)
 library(ggplot2)
 library(dplyr)
 library(tidyr)
+library(ggtext)
 
 #---- Global constants (must match 01_02 - needed by deserialized packer closures) ----
 
@@ -307,6 +308,17 @@ run_scenarios_hz <- function(hz_name,
     #---- 8. Scenario figures ----
 
     #Figure 1: Absolute scenario forecasts (weekly cases)
+    #Legend display names for the scenario key (raw scenario id -> label).
+    #Named vector so the mapping is order-independent; the scenario ids sort
+    #alphabetically, giving the legend order: Timely AA, Timely AA +
+    #Vaccination, Fitted response, No interventions.
+    scenario_key_labels <- c(
+        aa_response              = "Timely AA",
+        aa_response_plus_vaccine = "Timely AA + Vaccination",
+        fitted_response          = "Fitted response",
+        no_interventions         = "No interventions"
+    )
+
     p_absolute <- chlaa_plot_scenario_forecasts(
         scenario_fc,
         var = "cases",
@@ -314,8 +326,31 @@ run_scenarios_hz <- function(hz_name,
         data = observed,
         data_y = "cases"
     ) +
-        labs(title = sprintf("%s — Scenario forecasts (weekly cases)",
-            tools::toTitleCase(gsub("_", " ", hz_name))))
+        #Relabel both aesthetics identically so the colour (median line) and
+        #fill (uncertainty ribbon) legends merge into one scenario key.
+        scale_colour_hue(name = NULL, labels = scenario_key_labels) +
+        scale_fill_hue(name = NULL, labels = scenario_key_labels) +
+        labs(
+            title = sprintf("%s — Scenario forecasts (weekly cases)",
+                tools::toTitleCase(gsub("_", " ", hz_name))),
+            y = "Weekly cases"
+        ) +
+        #White background, no grid. Middle ground: text a touch above the
+        #package defaults but small enough that the legend does not crowd
+        #the panel.
+        theme_classic(base_family = "Helvetica", base_size = 12) +
+        theme(
+            plot.background  = element_rect(fill = "white", colour = NA),
+            panel.background = element_rect(fill = "white", colour = NA),
+            panel.grid       = element_blank(),
+            axis.title       = element_text(size = 15, colour = "black"),
+            axis.text        = element_text(size = 12, colour = "black"),
+            plot.title       = element_text(size = 13, face = "bold"),
+            legend.title     = element_blank(),
+            legend.text      = element_text(size = 11),
+            legend.key.size  = unit(0.5, "cm"),
+            legend.position  = "right"
+        )
 
     ggsave(
         file.path(fig_dir, sprintf("scenarios_%s_absolute_forecasts_cases.png", hz_name)),
@@ -714,6 +749,20 @@ if (length(scenario_rds_files) == 0) {
                 label_hjust = ifelse(q0p5 >= 0, -0.08, 1.08)
             )
 
+        #Kokolo did not converge: flag it - italic numeric labels, and grey out
+        #all three of its scenario boxes (fill_key routes them to a grey fill
+        #that is hidden from the scenario legend). Its fitted-response line/band
+        #are greyed further below.
+        composite_dat <- composite_dat %>%
+            mutate(
+                fill_key = ifelse(
+                    hz == "kokolo",
+                    "kokolo_grey", as.character(scenario)
+                ),
+                fill_key = factor(fill_key, levels = c(scenario_order_all, "kokolo_grey")),
+                lab_face = ifelse(hz == "kokolo", "italic", "plain")
+            )
+
         #Pad each variable's (column's) x-range so the numeric labels have
         #room to sit beyond the whiskers without being clipped by the
         #panel edge. facet_grid(scales = "free_x") shares one x-scale down
@@ -744,6 +793,24 @@ if (length(scenario_rds_files) == 0) {
                       .groups = "drop") %>%
             mutate(xmin = -half, xmax = half)
 
+        #Split the band by facet row: teal for the converged zones, grey for
+        #Kokolo (did not converge), so each HZ row gets the matching colour.
+        band_teal <- do.call(rbind, lapply(setdiff(hz_levels_facet, "kokolo"), function(h) {
+            band_df %>% mutate(hz = factor(h, levels = hz_levels_facet))
+        }))
+        band_grey <- band_df %>% mutate(hz = factor("kokolo", levels = hz_levels_facet))
+
+        #Row-strip labels as markdown (ggtext): bold for every HZ, and
+        #bold-italic with a trailing " *" for Kokolo (did not converge).
+        hz_label_starred <- function(x) {
+            lab <- hz_label(x)
+            out <- paste0("<b>", lab, "</b>")
+            out[x == "kokolo"] <- paste0("<b><i>", lab[x == "kokolo"], " *</i></b>")
+            out
+        }
+        #Column-strip labels (Cases / Deaths) bolded to match, as markdown too.
+        variable_label_md <- function(v) paste0("<b>", variable_facet_labels[v], "</b>")
+
         metric_note <- paste0(
             "Cases = modelled true symptomatic infections (not surveillance-reported); deaths = modelled counts; ",
             "both per 100,000 total (census) population."
@@ -773,22 +840,43 @@ if (length(scenario_rds_files) == 0) {
 
         p_composite <- ggplot(composite_dat, aes(y = scenario)) +
             #Thin decorative shaded band behind the dashed fitted-response line
+            #(teal for converged zones, grey for Kokolo which did not converge)
             geom_rect(
-                data = band_df, aes(xmin = xmin, xmax = xmax),
+                data = band_teal, aes(xmin = xmin, xmax = xmax),
                 ymin = -Inf, ymax = Inf, inherit.aes = FALSE,
                 fill = baseline_colour_all, alpha = 0.18
+            ) +
+            geom_rect(
+                data = band_grey, aes(xmin = xmin, xmax = xmax),
+                ymin = -Inf, ymax = Inf, inherit.aes = FALSE,
+                fill = "grey60", alpha = 0.18
             ) +
             #Dashed baseline = fitted response; colour is mapped so it shows up
             #as its own legend entry (line + shaded band, no CI - the fitted
             #response is normalised to zero).
+            #Fitted-response line: teal in the converged zones (drives the
+            #"Fitted response" legend key)...
             geom_vline(
-                data = data.frame(xintercept = 0, ref = "Fitted response"),
+                data = data.frame(
+                    xintercept = 0, ref = "Fitted response",
+                    hz = factor(setdiff(hz_levels_facet, "kokolo"), levels = hz_levels_facet)
+                ),
+                aes(xintercept = xintercept, colour = ref),
+                linetype = "dashed", linewidth = 0.8, key_glyph = draw_key_fitted_ref
+            ) +
+            #...and grey in Kokolo, which did not converge - this second colour
+            #adds the "* Did not converge" note to the right of "Fitted response".
+            geom_vline(
+                data = data.frame(
+                    xintercept = 0, ref = "* Did not converge",
+                    hz = factor("kokolo", levels = hz_levels_facet)
+                ),
                 aes(xintercept = xintercept, colour = ref),
                 linetype = "dashed", linewidth = 0.8, key_glyph = draw_key_fitted_ref
             ) +
             geom_blank(data = x_pad, aes(x = x, y = scenario)) +
             geom_crossbar(
-                aes(x = q0p5, xmin = q0p25, xmax = q0p75, fill = scenario),
+                aes(x = q0p5, xmin = q0p25, xmax = q0p75, fill = fill_key),
                 orientation = "y", width = 0.7, alpha = 0.85, colour = "grey30",
                 linewidth = 0.3, middle.linewidth = 0.6
             ) +
@@ -797,7 +885,8 @@ if (length(scenario_rds_files) == 0) {
                 orientation = "y", width = 0.3, linewidth = 0.4, colour = "grey30"
             ) +
             geom_text(
-                aes(x = label_x, label = num_label, hjust = label_hjust),
+                aes(x = label_x, label = num_label, hjust = label_hjust,
+                    fontface = lab_face),
                 size = 2.3, family = "Helvetica", colour = "black"
             ) +
             #Rows = one health zone each; columns = Cases | Deaths. Each panel
@@ -805,13 +894,26 @@ if (length(scenario_rds_files) == 0) {
             #(legend below), with the dashed line marking the fitted response.
             facet_grid(
                 hz ~ variable,
-                labeller = labeller(hz = as_labeller(hz_label), variable = variable_facet_labels),
+                labeller = labeller(hz = as_labeller(hz_label_starred), variable = as_labeller(variable_label_md)),
                 scales = "free_x", switch = "y"
             ) +
             scale_y_discrete(limits = rev) +
-            scale_fill_manual(values = scenario_colours_all, labels = scenario_facet_labels,
-                              name = "Scenario") +
-            scale_colour_manual(name = NULL, values = c("Fitted response" = baseline_colour_all)) +
+            #kokolo_grey is a hidden fill level (Kokolo's greyed boxes); breaks
+            #keeps the scenario legend to the three real scenarios.
+            scale_fill_manual(values = c(scenario_colours_all, kokolo_grey = "grey80"),
+                              breaks = scenario_order_all,
+                              labels = scenario_facet_labels, name = "Scenario") +
+            scale_colour_manual(
+                name = NULL,
+                values = c("Fitted response" = baseline_colour_all,
+                           "* Did not converge" = "grey60"),
+                breaks = c("Fitted response", "* Did not converge"),
+                #italic legend label for the "did not converge" note (markdown
+                #via element_markdown below; &#42; keeps the literal asterisk
+                #out of markdown's list/emphasis parsing)
+                labels = c("Fitted response"    = "Fitted response",
+                           "* Did not converge" = "<i>&#42; Did not converge</i>")
+            ) +
             labs(
                 x = "Excess per 100,000 population (vs fitted response)",
                 y = NULL,
@@ -828,8 +930,8 @@ if (length(scenario_rds_files) == 0) {
                 panel.background = element_rect(fill = "white", colour = "grey70"),
                 panel.border     = element_rect(fill = NA, colour = "grey70", linewidth = 0.5),
                 plot.background  = element_rect(fill = "white", colour = NA),
-                strip.text        = element_text(face = "bold", size = 11, colour = "black"),
-                strip.text.y.left = element_text(angle = 0),
+                strip.text        = element_markdown(size = 11, colour = "black"),
+                strip.text.y.left = element_markdown(angle = 0),
                 axis.text        = element_text(colour = "black"),
                 axis.title       = element_text(colour = "black"),
                 axis.text.y      = element_blank(),
@@ -839,6 +941,7 @@ if (length(scenario_rds_files) == 0) {
                 plot.subtitle    = element_text(size = 10, colour = "grey40"),
                 plot.caption     = element_text(size = 8.5, colour = "grey40", hjust = 0),
                 legend.position  = "bottom",
+                legend.text      = element_markdown(),
                 panel.spacing.x  = unit(1, "lines"),
                 panel.spacing.y  = unit(0.35, "lines")
             )

@@ -44,6 +44,7 @@ suppressMessages({
     library(chlaa)
     library(ggplot2)
     library(dplyr)
+    library(ggtext)
 })
 
 FIG_DIR <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures"
@@ -63,7 +64,7 @@ dir.create(TAB_DIR, showWarnings = FALSE, recursive = TRUE)
 dir.create(FIG_DIR, showWarnings = FALSE, recursive = TRUE)
 
 ##---- Fixed method settings -----------------------------------------
-N_DRAWS <- 60 #posterior draws -> parameter-uncertainty CrIs
+N_DRAWS <- 100 #posterior draws -> parameter-uncertainty CrIs
 N_PART <- 30 #particles per simulation (averaged within a draw)
 BURNIN <- 0.25
 HORIZON_EXTRA <- 182 #days beyond last observed week (matches 02_02)
@@ -104,11 +105,34 @@ stacked_colours <- c(
     "Vaccination"  = "#FDBF6F"
 )
 
+#Washed-out variant of the same per-lever palette, used for the stacked bars of
+#health zones whose fit did not converge - keeps the lever distinction but
+#visually flags them as unreliable (paired with the "* Did not converge" note).
+stacked_colours_dnc <- c(
+    "CTC"          = "#ECF4F9",
+    "ORC"          = "#FFFFE6",
+    "CATI"         = "#F4EEF6",
+    "Hygiene"      = "#FEE7E7",
+    "Chlorination" = "#DAF0C7",
+    "Vaccination"  = "#FEE0B9"
+)
+
 #Display-friendly health zone names (e.g. "ngiri_ngiri" -> "Ngiri Ngiri").
 #Same helper as in 02_02_scenario_analysis_all_HZs.R.
 hz_label <- function(x) {
     x <- gsub("_", " ", x)
     gsub("(?<=^|\\s)([a-z])", "\\U\\1", x, perl = TRUE)
+}
+
+#Zones whose fit did not converge - flagged in the stacked-bar figures with an
+#italic, asterisked axis label (markdown, rendered via element_markdown) and
+#greyscale bars.
+failed_hz_shapley <- c("nyiragongo", "bumbu", "kokolo")
+hz_label_stars <- function(x) {
+    lab <- hz_label(x)
+    failed <- x %in% failed_hz_shapley
+    lab[failed] <- paste0("<i>", lab[failed], " &#42;</i>")
+    lab
 }
 
 #For each lever, the parameter overrides that switch it OFF. Everything not
@@ -575,37 +599,89 @@ if (length(shapley_objs) == 0) {
     build_shapley_stacked_plot <- function(var_name, plot_title) {
         dat <- shap_dat %>% filter(variable == var_name)
 
+        #Zones that did not converge: keep the per-lever breakdown but recolour
+        #it with the washed-out palette by routing each segment to a "<lever>
+        #(dnc)" fill key. These keys are hidden from the legend (see breaks
+        #below); the "* Did not converge" note explains them instead.
+        dat <- dat %>%
+            mutate(
+                fill_key = ifelse(hz %in% failed_hz_shapley,
+                                  paste0(as.character(intervention), " (dnc)"),
+                                  as.character(intervention)),
+                fill_key = factor(
+                    fill_key,
+                    levels = c(names(stacked_colours),
+                               paste0(names(stacked_colours), " (dnc)"))
+                )
+            )
+
         stack_caption <- paste0(
             caption_txt_shapley, "\n",
             "Segments show per-draw-median shares only (medians are not strictly additive across levers, so per-zone\n",
             "totals may deviate slightly from 100%; see shapley_all_hz.csv for exact per-draw sums, and the companion forest-plot figure for uncertainty)."
         )
 
-        ggplot(dat, aes(x = hz, y = share_pct_q0p5, fill = intervention)) +
-            geom_col(width = 0.7, colour = "white", linewidth = 0.3) +
-            geom_hline(yintercept = 100, linetype = "dashed", colour = "grey40", linewidth = 0.5) +
-            coord_flip() +
-            scale_x_discrete(labels = hz_label) +
-            scale_fill_manual(values = stacked_colours, name = "Intervention") +
+        #Native horizontal bars (y = hz) rather than coord_flip(), so the HZ
+        #axis labels render markdown via element_markdown (coord_flip does not).
+        ggplot(dat, aes(x = share_pct_q0p5, y = hz, fill = fill_key)) +
+            geom_col(width = 0.7, colour = "white", linewidth = 0.3, orientation = "y") +
+            geom_vline(xintercept = 100, linetype = "dashed", colour = "grey40", linewidth = 0.5) +
+            #Invisible layer whose sole purpose is a text-only legend note (no
+            #colour swatch: key_glyph = "blank") flagging the did-not-converge zones.
+            geom_point(
+                data = data.frame(x = NA_real_, y = NA_real_),
+                aes(x = x, y = y, shape = "* Did not converge"),
+                inherit.aes = FALSE, na.rm = TRUE, key_glyph = "blank"
+            ) +
+            scale_y_discrete(labels = hz_label_stars) +
+            scale_fill_manual(
+                values = c(
+                    stacked_colours,
+                    setNames(stacked_colours_dnc[names(stacked_colours)],
+                             paste0(names(stacked_colours), " (dnc)"))
+                ),
+                breaks = names(stacked_colours), #hide the "(dnc)" keys from the legend
+                name = "Intervention"
+            ) +
+            scale_shape_manual(
+                name = NULL,
+                values = c("* Did not converge" = 19),
+                labels = c("* Did not converge" = "<i>&#42; Did not converge</i>")
+            ) +
+            guides(
+                fill = guide_legend(order = 1),
+                shape = guide_legend(order = 2)
+            ) +
             labs(
-                x = NULL, y = "Median Shapley share of total averted burden (%)",
+                x = "Median Shapley share of total averted burden (%)", y = NULL,
                 title = plot_title,
                 subtitle = "Shapley shares sum to exactly 100% of the total averted burden for every posterior draw",
                 caption = stack_caption
             ) +
-            theme_minimal(base_family = "Helvetica", base_size = 12) +
+            #theme_bw (not theme_minimal) because element_markdown on axis.text.y
+            #renders correctly under theme_bw + ggplot2 4.0 but is silently
+            #downgraded to plain text under theme_minimal. panel.grid/border below
+            #reproduce the previous minimal-with-box look. Set the two axis-text
+            #children directly (not the parent axis.text) - setting the parent
+            #also re-breaks the markdown child.
+            theme_bw(base_family = "Helvetica", base_size = 12) +
             theme(
                 panel.grid       = element_blank(),
                 panel.background = element_rect(fill = "white", colour = "grey70"),
                 panel.border     = element_rect(fill = NA, colour = "grey70", linewidth = 0.5),
                 plot.background  = element_rect(fill = "white", colour = NA),
-                axis.text        = element_text(colour = "black"),
+                axis.text.x      = element_text(colour = "black"),
+                axis.text.y      = element_markdown(colour = "black"),
                 axis.title       = element_text(colour = "black"),
                 axis.ticks.x     = element_line(colour = "grey40"),
                 axis.ticks.y     = element_blank(),
                 plot.title       = element_text(face = "bold", size = 15),
                 plot.subtitle    = element_text(size = 9.5, colour = "grey40"),
                 plot.caption     = element_text(size = 7.5, colour = "grey40", hjust = 0),
+                legend.text      = element_markdown(),
+                #no key background box - so the text-only "* Did not converge"
+                #note shows no empty swatch (coloured glyphs are unaffected)
+                legend.key       = element_blank(),
                 legend.position  = "right"
             )
     }
