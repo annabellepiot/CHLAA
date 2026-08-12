@@ -110,7 +110,7 @@ fit_hz <- function(hz_name,
                    n_explore = 100,
                    n_explore_steps = 1000,
                    n_prod = 200,
-                   n_prod_steps = 10000,
+                   n_prod_steps = 20000,
                    seed_explore = 42,
                    seed_prod = 123,
                    variance_check_reps = 20,
@@ -831,7 +831,7 @@ fit_hz <- function(hz_name,
     p_trace <- chlaa_plot_trace(fit, parameters = natural_fit_names, burnin = 0.25, scale = "natural")
     ggsave(file.path(fig_dir, sprintf("fitting_%s_production_trace.png", hz_name)),
         p_trace,
-        width = 12, height = 8, dpi = 300
+        width = 12, height = 8, dpi = 600
     )
 
     p_lltrace <- chlaa_plot_likelihood_trace(fit, burnin = 0.25, thin = 2)
@@ -846,7 +846,7 @@ fit_hz <- function(hz_name,
         burnin = 0.25, scale = "natural", max_points = 3000
     )
     ggsave(file.path(fig_dir, sprintf("fitting_%s_production_pairs.png", hz_name)),
-        plot = p_pairs, width = 10, height = 10, dpi = 300
+        plot = p_pairs, width = 10, height = 10, dpi = 600
     )
 
     p_dist <- chlaa_plot_parameter_distributions(
@@ -855,7 +855,7 @@ fit_hz <- function(hz_name,
     )
     ggsave(file.path(fig_dir, sprintf("fitting_%s_production_distributions.png", hz_name)),
         p_dist,
-        width = 12, height = 8, dpi = 300
+        width = 12, height = 8, dpi = 600
     )
 
     #---- 18. Fit plot ----

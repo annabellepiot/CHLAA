@@ -687,22 +687,22 @@ if (length(shapley_objs) == 0) {
     }
 
     p_forest_cases <- build_shapley_forest_plot("cases", "Shapley contribution of individual interventions - Cases", xlim_clip = c(-30, 100))
-    ggsave(file.path(FIG_DIR, "shapley_forest_cases.png"), p_forest_cases, width = 12, height = 10, dpi = 300)
+    ggsave(file.path(FIG_DIR, "shapley_forest_cases.png"), p_forest_cases, width = 12, height = 10, dpi = 600)
     ggsave(file.path(FIG_DIR, "shapley_forest_cases.pdf"), p_forest_cases, width = 12, height = 10)
 
     #Deaths CTC shares reach ~101% median (104% whisker) in Goma, so the right
     #limit must clear the widest numeric label - a hard 100/110 clip truncates
     #the "101% (98 to ...)" annotation. Left kept at -30 to match the cases plot.
     p_forest_deaths <- build_shapley_forest_plot("deaths", "Shapley contribution of individual interventions - Deaths", xlim_clip = c(-30, 130))
-    ggsave(file.path(FIG_DIR, "shapley_forest_deaths.png"), p_forest_deaths, width = 12, height = 10, dpi = 300)
+    ggsave(file.path(FIG_DIR, "shapley_forest_deaths.png"), p_forest_deaths, width = 12, height = 10, dpi = 600)
     ggsave(file.path(FIG_DIR, "shapley_forest_deaths.pdf"), p_forest_deaths, width = 12, height = 10)
 
     p_stacked_cases <- build_shapley_stacked_plot("cases", "Relative contribution (Shapley) by health zone - Cases")
-    ggsave(file.path(FIG_DIR, "shapley_stacked_cases.png"), p_stacked_cases, width = 10, height = 7, dpi = 300)
+    ggsave(file.path(FIG_DIR, "shapley_stacked_cases.png"), p_stacked_cases, width = 10, height = 7, dpi = 600)
     ggsave(file.path(FIG_DIR, "shapley_stacked_cases.pdf"), p_stacked_cases, width = 10, height = 7)
 
     p_stacked_deaths <- build_shapley_stacked_plot("deaths", "Relative contribution (Shapley) by health zone - Deaths")
-    ggsave(file.path(FIG_DIR, "shapley_stacked_deaths.png"), p_stacked_deaths, width = 10, height = 7, dpi = 300)
+    ggsave(file.path(FIG_DIR, "shapley_stacked_deaths.png"), p_stacked_deaths, width = 10, height = 7, dpi = 600)
     ggsave(file.path(FIG_DIR, "shapley_stacked_deaths.pdf"), p_stacked_deaths, width = 10, height = 7)
 
     cat("\nShapley figures saved to:\n")

@@ -445,6 +445,6 @@ p <- ggplot() +
     )
 
 out_png <- file.path(fig_dir, "healthzone_attack_rate_map_2025.png")
-ggsave(out_png, p, width = 15, height = 12, dpi = 300, bg = "white")
+ggsave(out_png, p, width = 15, height = 12, dpi = 600, bg = "white")
 cat("Saved map to:", out_png, "\n")
 cat("Saved table to:", file.path(out_dir, "healthzone_attack_rate_2025.csv"), "\n")

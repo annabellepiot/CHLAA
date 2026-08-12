@@ -32,6 +32,16 @@ H_REF <- 1.0
 POP_REF <- 516000
 RR_FIXED <- 0.30
 
+#Vaccination-coverage sensitivity levels for the composite excess figure.
+#Only the aa_response_plus_vaccine scenario depends on coverage (doses =
+#coverage * N); every other scenario/row is coverage-independent. suffix ""
+#keeps the base (52%) figure at its existing filename.
+VAX_COV_LEVELS <- list(
+    base = list(coverage = 0.52, suffix = "",        pct = "52%"),
+    low  = list(coverage = 0.30, suffix = "_vax30",  pct = "30%"),
+    high = list(coverage = 1.00, suffix = "_vax100", pct = "100%")
+)
+
 seed_state_names <- c("E0", "A0", "M0", "Sev0", "Mu0", "Mt0", "Sevu0", "Sevt0", "C0")
 
 seed_state <- function(E0, p) {
@@ -230,14 +240,21 @@ run_scenarios_hz <- function(hz_name,
             #Anticipatory-action + vaccination campaign
             vax1_start_day <- trigger_time + 14
             vax1_end_day <- vax1_start_day + campaign_days
-            vax_sched <- make_scenario_vax_schedule(
-                vaccine_doses, vax1_start_day, vax1_end_day
-            )
-            aa_vaccination <- modifyList(aa_response, c(list(
-                vax1_start = vax1_start_day,
-                vax1_end = vax1_end_day,
-                vax1_total_doses = vaccine_doses
-            ), vax_sched))
+
+            #Builds the aa_response_plus_vaccine modify list at an arbitrary
+            #coverage (doses = coverage * N). Reused below by the coverage
+            #sensitivity to rebuild only the vaccine scenario at 30%/100%.
+            make_aa_vaccination_modify <- function(coverage) {
+                vd <- floor(coverage * pars_fit$N)
+                vs <- make_scenario_vax_schedule(vd, vax1_start_day, vax1_end_day)
+                modifyList(aa_response, c(list(
+                    vax1_start = vax1_start_day,
+                    vax1_end = vax1_end_day,
+                    vax1_total_doses = vd
+                ), vs))
+            }
+
+            aa_vaccination <- make_aa_vaccination_modify(vax_coverage)
 
             scenarios <- c(scenarios, list(
                 chlaa_scenario("aa_response_plus_vaccine", aa_vaccination)
@@ -305,6 +322,27 @@ run_scenarios_hz <- function(hz_name,
     if (verbose) cat("Per-draw endpoint burdens stored for",
         length(scenario_draw_burden$burden), "configs.\n")
 
+    #---- 7c. Coverage-indexed draw burdens (vaccination-coverage sensitivity) ----
+    #The composite scenario_excess figure is rebuilt once per assumed OCV
+    #coverage. Only aa_response_plus_vaccine depends on coverage, so reuse the
+    #fitted_response/no_interventions/aa_response burdens from the base draw
+    #burden above and recompute ONLY the vaccine scenario at each non-base
+    #coverage (base reuses the burden already computed). make_aa_vaccination_modify
+    #only exists when include_vax_scenario is TRUE; when it is FALSE the vaccine
+    #entry is simply absent, exactly as in scenario_draw_burden.
+    scenario_draw_burden_by_cov <- lapply(names(VAX_COV_LEVELS), function(lvl) {
+        b <- scenario_draw_burden$burden
+        if (include_vax_scenario && lvl != "base") {
+            b[["aa_response_plus_vaccine"]] <-
+                sim_draw_burden(make_aa_vaccination_modify(VAX_COV_LEVELS[[lvl]]$coverage))
+        }
+        list(times = scenario_time, draw_indices = fc_idx,
+             coverage = VAX_COV_LEVELS[[lvl]]$coverage, burden = b)
+    })
+    names(scenario_draw_burden_by_cov) <- names(VAX_COV_LEVELS)
+    if (verbose) cat("Coverage-indexed draw burdens stored for levels:",
+        paste(names(scenario_draw_burden_by_cov), collapse = ", "), "\n")
+
     #---- 8. Scenario figures ----
 
     #Figure 1: Absolute scenario forecasts (weekly cases)
@@ -354,7 +392,7 @@ run_scenarios_hz <- function(hz_name,
 
     ggsave(
         file.path(fig_dir, sprintf("scenarios_%s_absolute_forecasts_cases.png", hz_name)),
-        plot = p_absolute, width = 12, height = 7, dpi = 300
+        plot = p_absolute, width = 12, height = 7, dpi = 600
     )
 
     #Figure 2: Difference in cumulative deaths relative to baseline
@@ -417,6 +455,7 @@ run_scenarios_hz <- function(hz_name,
         scenario_comparison = scenario_comparison,
         scenario_forecasts = scenario_fc,
         scenario_draw_burden = scenario_draw_burden,
+        scenario_draw_burden_by_cov = scenario_draw_burden_by_cov,
         scenarios_defined = vapply(scenarios, `[[`, character(1), "name"),
         trigger_time = trigger_time,
         trigger_threshold = trigger_threshold,
@@ -662,8 +701,18 @@ if (length(scenario_rds_files) == 0) {
             }
             p
         }
+        #Rebuild the whole composite once per assumed OCV coverage. Only the
+        #aa_response_plus_vaccine row differs between levels (the vaccine draw
+        #burden was stored per coverage in scenario_draw_burden_by_cov); every
+        #other row, the HZ ordering and the pop denominators are identical.
+        for (lvl in names(VAX_COV_LEVELS)) {
+        cov_info <- VAX_COV_LEVELS[[lvl]]
+        cat(sprintf("\n-- Composite at %s vaccination coverage --\n", cov_info$pct))
+
         all_fc <- lapply(keep_hz, function(hz) {
-            sdb <- scenario_objs[[hz]]$scenario_draw_burden
+            sdb <- scenario_objs[[hz]]$scenario_draw_burden_by_cov[[lvl]]
+            #Old caches (pre-sensitivity) only hold the single base burden.
+            if (is.null(sdb)) sdb <- scenario_objs[[hz]]$scenario_draw_burden
             if (is.null(sdb)) {
                 stop("scenario_draw_burden missing for ", hz,
                      " - re-run run_scenarios_hz() to refresh this cache.")
@@ -919,8 +968,8 @@ if (length(scenario_rds_files) == 0) {
                 y = NULL,
                 title = "Scenario impact across health zones",
                 subtitle = sprintf(
-                    "Excess cases and deaths per 100,000 total population (vs fitted response) at the modelled horizon (last observed week + 182 days) (n = %d health zones)",
-                    length(keep_hz)
+                    "Excess cases and deaths per 100,000 total population (vs fitted response) at the modelled horizon (last observed week + 182 days) (n = %d health zones) | Vaccination coverage assumption: %s of total population",
+                    length(keep_hz), cov_info$pct
                 ),
                 caption = caption_txt
             ) +
@@ -946,14 +995,17 @@ if (length(scenario_rds_files) == 0) {
                 panel.spacing.y  = unit(0.35, "lines")
             )
 
-        ggsave(file.path(fig_dir, "scenario_excess_all_hz.png"),
-            plot = p_composite, width = 11, height = 8.5, dpi = 300)
-        ggsave(file.path(fig_dir, "scenario_excess_all_hz.pdf"),
+        png_name <- sprintf("scenario_excess_all_hz%s.png", cov_info$suffix)
+        pdf_name <- sprintf("scenario_excess_all_hz%s.pdf", cov_info$suffix)
+        ggsave(file.path(fig_dir, png_name),
+            plot = p_composite, width = 11, height = 8.5, dpi = 600)
+        ggsave(file.path(fig_dir, pdf_name),
             plot = p_composite, width = 11, height = 8.5)
 
         cat("\nComposite figure saved to:\n")
-        cat("  ", file.path(fig_dir, "scenario_excess_all_hz.png"), "\n")
-        cat("  ", file.path(fig_dir, "scenario_excess_all_hz.pdf"), "\n")
+        cat("  ", file.path(fig_dir, png_name), "\n")
+        cat("  ", file.path(fig_dir, pdf_name), "\n")
+        }  #end coverage-level loop
     }
 }
 

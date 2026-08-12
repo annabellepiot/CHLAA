@@ -538,7 +538,7 @@ p_r0_density <- ggplot(draws_r0, aes(x = value, y = hz)) +
   )
 
 ggsave(file.path(fig_dir, "fitted_r0_density.png"),
-  p_r0_density, width = 8, height = 7, dpi = 300)
+  p_r0_density, width = 8, height = 7, dpi = 600)
 
 #--- 4-parameter comparison (2x2): linear pair + log pair via patchwork ---
 #
@@ -635,7 +635,7 @@ p_dist <- ((p_frac_neff | p_obs_size) / p_log) +
   )
 
 ggsave(file.path(fig_dir, "fitted_parameters_comparison.png"),
-  p_dist, width = 15, height = 13, dpi = 300)
+  p_dist, width = 15, height = 13, dpi = 600)
 
 #---- 2. R0 estimates across HZs ----
 

@@ -617,7 +617,7 @@ fig_width <- 16
 message("Saving to: ", out_path)
 ggsave(out_path, composite,
   width = fig_width, height = fig_height,
-  dpi = 300, bg = "white"
+  dpi = 600, bg = "white"
 )
 
 # also save as PDF for publication
