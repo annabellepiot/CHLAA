@@ -826,7 +826,7 @@ if (length(scenario_rds_files) == 0) {
             ) %>%
             mutate(range = hi - lo) %>%
             tidyr::pivot_longer(c(lo, hi), names_to = "side", values_to = "x") %>%
-            mutate(x = ifelse(side == "lo", x - range * 0.45, x + range * 0.45)) %>%
+            mutate(x = ifelse(side == "lo", x - range * 0.6, x + range * 0.6)) %>%
             mutate(
                 scenario = factor("aa_response", levels = scenario_order_all),
                 hz = factor(hz_levels_facet[1], levels = hz_levels_facet)
@@ -850,11 +850,12 @@ if (length(scenario_rds_files) == 0) {
         band_grey <- band_df %>% mutate(hz = factor("kokolo", levels = hz_levels_facet))
 
         #Row-strip labels as markdown (ggtext): bold for every HZ, and
-        #bold-italic with a trailing " *" for Kokolo (did not converge).
+        #bold-italic for Kokolo (did not converge; flagged by the legend note
+        #and its greyed boxes rather than an asterisk).
         hz_label_starred <- function(x) {
             lab <- hz_label(x)
             out <- paste0("<b>", lab, "</b>")
-            out[x == "kokolo"] <- paste0("<b><i>", lab[x == "kokolo"], " *</i></b>")
+            out[x == "kokolo"] <- paste0("<b><i>", lab[x == "kokolo"], "</i></b>")
             out
         }
         #Column-strip labels (Cases / Deaths) bolded to match, as markdown too.
@@ -914,10 +915,10 @@ if (length(scenario_rds_files) == 0) {
                 linetype = "dashed", linewidth = 0.8, key_glyph = draw_key_fitted_ref
             ) +
             #...and grey in Kokolo, which did not converge - this second colour
-            #adds the "* Did not converge" note to the right of "Fitted response".
+            #adds the "Did not converge" note to the right of "Fitted response".
             geom_vline(
                 data = data.frame(
-                    xintercept = 0, ref = "* Did not converge",
+                    xintercept = 0, ref = "Did not converge",
                     hz = factor("kokolo", levels = hz_levels_facet)
                 ),
                 aes(xintercept = xintercept, colour = ref),
@@ -936,7 +937,7 @@ if (length(scenario_rds_files) == 0) {
             geom_text(
                 aes(x = label_x, label = num_label, hjust = label_hjust,
                     fontface = lab_face),
-                size = 2.3, family = "Helvetica", colour = "black"
+                size = 3.6, family = "Helvetica", colour = "black"
             ) +
             #Rows = one health zone each; columns = Cases | Deaths. Each panel
             #holds the three scenario box-and-whiskers, coloured by scenario
@@ -955,42 +956,36 @@ if (length(scenario_rds_files) == 0) {
             scale_colour_manual(
                 name = NULL,
                 values = c("Fitted response" = baseline_colour_all,
-                           "* Did not converge" = "grey60"),
-                breaks = c("Fitted response", "* Did not converge"),
-                #italic legend label for the "did not converge" note (markdown
-                #via element_markdown below; &#42; keeps the literal asterisk
-                #out of markdown's list/emphasis parsing)
-                labels = c("Fitted response"    = "Fitted response",
-                           "* Did not converge" = "<i>&#42; Did not converge</i>")
+                           "Did not converge" = "grey60"),
+                breaks = c("Fitted response", "Did not converge"),
+                #italic legend label for the "did not converge" note
+                #(markdown via element_markdown below)
+                labels = c("Fitted response"  = "Fitted response",
+                           "Did not converge" = "<i>Did not converge</i>")
             ) +
             labs(
                 x = "Excess per 100,000 population (vs fitted response)",
                 y = NULL,
-                title = "Scenario impact across health zones",
-                subtitle = sprintf(
-                    "Excess cases and deaths per 100,000 total population (vs fitted response) at the modelled horizon (last observed week + 182 days) (n = %d health zones) | Vaccination coverage assumption: %s of total population",
-                    length(keep_hz), cov_info$pct
-                ),
-                caption = caption_txt
+                title = NULL,
+                subtitle = NULL,
+                caption = NULL
             ) +
-            theme_minimal(base_family = "Helvetica", base_size = 12) +
+            theme_minimal(base_family = "Helvetica", base_size = 15) +
             theme(
                 panel.grid       = element_blank(),
                 panel.background = element_rect(fill = "white", colour = "grey70"),
                 panel.border     = element_rect(fill = NA, colour = "grey70", linewidth = 0.5),
                 plot.background  = element_rect(fill = "white", colour = NA),
-                strip.text        = element_markdown(size = 11, colour = "black"),
+                strip.text        = element_markdown(size = 15, colour = "black"),
                 strip.text.y.left = element_markdown(angle = 0),
-                axis.text        = element_text(colour = "black"),
-                axis.title       = element_text(colour = "black"),
+                axis.text        = element_text(colour = "black", size = 14),
+                axis.title       = element_text(colour = "black", size = 16),
                 axis.text.y      = element_blank(),
                 axis.ticks.x     = element_line(colour = "grey40"),
                 axis.ticks.y     = element_blank(),
-                plot.title       = element_text(face = "bold", size = 15),
-                plot.subtitle    = element_text(size = 10, colour = "grey40"),
-                plot.caption     = element_text(size = 8.5, colour = "grey40", hjust = 0),
                 legend.position  = "bottom",
-                legend.text      = element_markdown(),
+                legend.title     = element_text(size = 15),
+                legend.text      = element_markdown(size = 14),
                 panel.spacing.x  = unit(1, "lines"),
                 panel.spacing.y  = unit(0.35, "lines")
             )
@@ -998,15 +993,175 @@ if (length(scenario_rds_files) == 0) {
         png_name <- sprintf("scenario_excess_all_hz%s.png", cov_info$suffix)
         pdf_name <- sprintf("scenario_excess_all_hz%s.pdf", cov_info$suffix)
         ggsave(file.path(fig_dir, png_name),
-            plot = p_composite, width = 11, height = 8.5, dpi = 600)
+            plot = p_composite, width = 16, height = 9, dpi = 600)
         ggsave(file.path(fig_dir, pdf_name),
-            plot = p_composite, width = 11, height = 8.5)
+            plot = p_composite, width = 16, height = 9)
 
         cat("\nComposite figure saved to:\n")
         cat("  ", file.path(fig_dir, png_name), "\n")
         cat("  ", file.path(fig_dir, pdf_name), "\n")
         }  #end coverage-level loop
     }
+}
+
+#=========================================================================
+#Composite 8-panel absolute scenario-forecast figure (weekly cases)
+#=========================================================================
+#
+#One figure, 8 health zones as a 4x2 grid (2 rows), reading left-to-right in
+#a fixed order, with a single vertical legend on the right. Each panel is the
+#same "absolute scenario forecasts (weekly cases)" view produced per-HZ by
+#chlaa_plot_scenario_forecasts() above (fitted_response + no_interventions +
+#Timely AA +/- vaccination, with observed weekly cases overlaid), read back
+#from the cached <hz>_scenarios.rds. Kokolo did not converge, so its four
+#scenarios are drawn in lighter tints of the same colours and a light-grey
+#"Did not converge" note is added to the legend.
+
+cat("\n", rep("=", 60), "\n", sep = "")
+cat("Building composite 8-panel absolute forecast figure\n")
+cat(rep("=", 60), "\n\n", sep = "")
+
+#Fixed panel order (row-major, 4 columns x 2 rows)
+fc_hz_order <- c("limete", "kirotshe", "alunguli", "opala",
+                 "kindu", "kokolo", "maluku_i", "goma")
+
+#Scenario palette = the default-hue colours used by the per-HZ figures, so the
+#composite matches scenarios_<hz>_absolute_forecasts_cases.png.
+scenario_cols_fc <- c(
+    aa_response              = "#F8766D",
+    aa_response_plus_vaccine = "#7CAE00",
+    fitted_response          = "#00BFC4",
+    no_interventions         = "#C77CFF"
+)
+scenario_labels_fc <- c(
+    aa_response              = "Timely AA",
+    aa_response_plus_vaccine = "Timely AA + Vaccination",
+    fitted_response          = "Fitted response",
+    no_interventions         = "No interventions"
+)
+#Kokolo did not converge: its four scenarios are drawn in a single greyscale
+#(medium-grey median lines on light-grey ribbons) rather than the scenario
+#colours, and flagged by a "Did not converge" key in the shared legend.
+kokolo_line_grey   <- "grey50"
+kokolo_ribbon_grey <- "grey85"
+
+#Load the cached scenario forecasts for the 8 panels (skip any missing zone)
+fc_objs <- lapply(fc_hz_order, function(h) {
+    p <- file.path(rds_dir, sprintf("%s_scenarios.rds", h))
+    if (!file.exists(p)) {
+        cat("  (skipping", h, "- no scenarios cache found)\n")
+        return(NULL)
+    }
+    readRDS(p)
+})
+names(fc_objs) <- fc_hz_order
+fc_objs <- fc_objs[!vapply(fc_objs, is.null, logical(1))]
+
+if (length(fc_objs) == 0) {
+    cat("No scenario caches found for the 8 panels - skipping composite forecast figure.\n")
+} else {
+    present_hz <- intersect(fc_hz_order, names(fc_objs))
+    #hz -> display label factor, shared by forecast + observed layers so panels align
+    to_hz_factor <- function(v) factor(v, levels = present_hz, labels = hz_label(present_hz))
+
+    #Absolute weekly-case trajectories for the 4 scenarios per HZ
+    fc_dat <- lapply(present_hz, function(h) {
+        fc <- fc_objs[[h]]$scenario_forecasts
+        fc <- fc[fc$variable == "cases" & fc$type == "absolute", , drop = FALSE]
+        fc$hz <- h
+        fc
+    }) %>% bind_rows()
+
+    #Route each series to a colour/fill key: the real scenario for converged
+    #zones, and the single "Did not converge" key for Kokolo (greyscale) - which
+    #also makes the "Did not converge" legend entry appear automatically.
+    fc_dat <- fc_dat %>%
+        mutate(
+            col_key = ifelse(hz == "kokolo", "Did not converge", scenario),
+            hz_lab  = to_hz_factor(hz)
+        )
+    fc_conv <- fc_dat %>% filter(hz != "kokolo")
+    fc_kok  <- fc_dat %>% filter(hz == "kokolo")
+
+    #Observed weekly cases per HZ, reconstructed from IDSR + the cached outbreak
+    #window exactly as run_scenarios_hz() does (weekly grid: day 7, 14, ...).
+    idsr_fc <- read.csv(file.path(data_dir, "IDSR_dataset.csv"))
+    obs_dat <- lapply(present_hz, function(h) {
+        os <- fc_objs[[h]]$outbreak_start
+        oe <- fc_objs[[h]]$outbreak_end
+        idsr_fc %>%
+            filter(hz == h) %>%
+            mutate(date = as.Date(date)) %>%
+            filter(date >= os, date <= oe) %>%
+            arrange(date) %>%
+            mutate(time = seq_len(n()) * 7L, hz = h) %>%
+            select(time, cases, hz)
+    }) %>% bind_rows() %>%
+        mutate(hz_lab = to_hz_factor(hz))
+
+    #Manual colour/fill scales. The colour scale drives the median lines, the
+    #fill scale the ribbons; both share identical name/breaks/labels so ggplot
+    #MERGES them into one legend with filled ribbon + line keys (matching the
+    #per-HZ scenarios_<hz>_absolute_forecasts_cases.png). Kokolo's greyscale
+    #"Did not converge" key carries a medium-grey line and light-grey ribbon.
+    col_values_fc <- c(scenario_cols_fc, "Did not converge" = kokolo_line_grey)
+    fill_values_fc <- c(scenario_cols_fc, "Did not converge" = kokolo_ribbon_grey)
+    col_breaks_fc <- c(names(scenario_cols_fc), "Did not converge")
+    col_labels_fc <- c(scenario_labels_fc, "Did not converge" = "Did not converge")
+
+    p_fc_all <- ggplot(mapping = aes(x = time)) +
+        #-- converged zones: standard translucent ribbons + median line --
+        geom_ribbon(data = fc_conv,
+            aes(ymin = q0p025, ymax = q0p975, fill = col_key), alpha = 0.14) +
+        geom_ribbon(data = fc_conv,
+            aes(ymin = q0p25, ymax = q0p75, fill = col_key), alpha = 0.28) +
+        geom_line(data = fc_conv,
+            aes(y = q0p5, colour = col_key), linewidth = 0.7) +
+        #-- Kokolo (did not converge): lighter tints, drawn a touch more opaque
+        #   because the ribbon colours are near-white --
+        geom_ribbon(data = fc_kok,
+            aes(ymin = q0p025, ymax = q0p975, fill = col_key), alpha = 0.55) +
+        geom_ribbon(data = fc_kok,
+            aes(ymin = q0p25, ymax = q0p75, fill = col_key), alpha = 0.8) +
+        geom_line(data = fc_kok,
+            aes(y = q0p5, colour = col_key), linewidth = 0.7) +
+        #-- observed weekly cases --
+        geom_point(data = obs_dat,
+            aes(x = time, y = cases), inherit.aes = FALSE,
+            colour = "black", size = 0.55) +
+        facet_wrap(~hz_lab, ncol = 4, scales = "free") +
+        #Identical name/breaks/labels on both scales -> one merged legend with
+        #ribbon (fill) + median line (colour) keys.
+        scale_colour_manual(
+            name = NULL, values = col_values_fc,
+            breaks = col_breaks_fc, labels = col_labels_fc
+        ) +
+        scale_fill_manual(
+            name = NULL, values = fill_values_fc,
+            breaks = col_breaks_fc, labels = col_labels_fc
+        ) +
+        labs(x = "Time (days)", y = "Weekly cases") +
+        theme_classic(base_family = "Helvetica", base_size = 13) +
+        theme(
+            plot.background  = element_rect(fill = "white", colour = NA),
+            panel.background = element_rect(fill = "white", colour = NA),
+            strip.background = element_blank(),
+            strip.text       = element_text(face = "bold", size = 13, colour = "black"),
+            axis.title       = element_text(size = 14, colour = "black"),
+            axis.text        = element_text(size = 11, colour = "black"),
+            legend.text      = element_text(size = 12),
+            legend.key.size  = unit(0.7, "cm"),
+            legend.position  = "bottom",
+            panel.spacing    = unit(1, "lines")
+        )
+
+    ggsave(file.path(fig_dir, "scenarios_all_hz_absolute_forecasts_cases.png"),
+        plot = p_fc_all, width = 16, height = 8, dpi = 600, bg = "white")
+    ggsave(file.path(fig_dir, "scenarios_all_hz_absolute_forecasts_cases.pdf"),
+        plot = p_fc_all, width = 16, height = 8, bg = "white")
+
+    cat("\nComposite 8-panel forecast figure saved to:\n")
+    cat("  ", file.path(fig_dir, "scenarios_all_hz_absolute_forecasts_cases.png"), "\n")
 }
 
 #=========================================================================

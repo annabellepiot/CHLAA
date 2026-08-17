@@ -128,11 +128,14 @@ hz_label <- function(x) {
 #italic, asterisked axis label (markdown, rendered via element_markdown) and
 #greyscale bars.
 failed_hz_shapley <- c("nyiragongo", "bumbu", "kokolo")
+#All HZ names bold; non-converged zones bold-italic (no asterisk - the white
+#legend box + washed-out bars flag them instead).
 hz_label_stars <- function(x) {
     lab <- hz_label(x)
     failed <- x %in% failed_hz_shapley
-    lab[failed] <- paste0("<i>", lab[failed], " &#42;</i>")
-    lab
+    out <- paste0("<b>", lab, "</b>")
+    out[failed] <- paste0("<b><i>", lab[failed], "</i></b>")
+    out
 }
 
 #For each lever, the parameter overrides that switch it OFF. Everything not
@@ -559,7 +562,7 @@ if (length(shapley_objs) == 0) {
             ) +
             geom_label(
                 aes(x = label_x, label = num_label, hjust = label_hjust),
-                size = 2.3, family = "Helvetica", colour = "black",
+                size = 3.0, family = "Helvetica", colour = "black",
                 fill = "white", linewidth = 0, label.padding = unit(0.12, "lines")
             ) +
             facet_wrap(~intervention, ncol = 2) +
@@ -568,28 +571,26 @@ if (length(shapley_objs) == 0) {
             labs(
                 x = "Shapley share of total averted burden (%)",
                 y = NULL,
-                title = plot_title,
-                subtitle = "Exact partition of averted burden across levers (efficiency axiom); shares sum to 100% for every posterior draw",
-                caption = caption_txt
+                title = NULL,
+                subtitle = NULL,
+                caption = NULL
             )
 
         if (!is.null(xlim_clip)) p <- p + coord_cartesian(xlim = xlim_clip)
 
         p +
-            theme_minimal(base_family = "Helvetica", base_size = 12) +
+            theme_minimal(base_family = "Helvetica", base_size = 13) +
             theme(
                 panel.grid       = element_blank(),
                 panel.background = element_rect(fill = "white", colour = "grey70"),
                 panel.border     = element_rect(fill = NA, colour = "grey70", linewidth = 0.5),
                 plot.background  = element_rect(fill = "white", colour = NA),
-                strip.text       = element_text(face = "bold", size = 11, colour = "black"),
-                axis.text        = element_text(colour = "black"),
-                axis.title       = element_text(colour = "black"),
+                strip.text       = element_text(face = "bold", size = 13, colour = "black"),
+                axis.text.x      = element_text(colour = "black", size = 12),
+                axis.text.y      = element_text(colour = "black", size = 12, face = "bold"),
+                axis.title       = element_text(colour = "black", size = 14),
                 axis.ticks.x     = element_line(colour = "grey40"),
                 axis.ticks.y     = element_blank(),
-                plot.title       = element_text(face = "bold", size = 15),
-                plot.subtitle    = element_text(size = 9.5, colour = "grey40"),
-                plot.caption     = element_text(size = 7.5, colour = "grey40", hjust = 0),
                 panel.spacing    = unit(1, "lines")
             )
     }
@@ -626,12 +627,14 @@ if (length(shapley_objs) == 0) {
         ggplot(dat, aes(x = share_pct_q0p5, y = hz, fill = fill_key)) +
             geom_col(width = 0.7, colour = "white", linewidth = 0.3, orientation = "y") +
             geom_vline(xintercept = 100, linetype = "dashed", colour = "grey40", linewidth = 0.5) +
-            #Invisible layer whose sole purpose is a text-only legend note (no
-            #colour swatch: key_glyph = "blank") flagging the did-not-converge zones.
+            #Invisible layer whose sole purpose is a legend note flagging the
+            #did-not-converge zones, shown as a white square swatch (pch 22 =
+            #filled square: white fill + grey border).
             geom_point(
                 data = data.frame(x = NA_real_, y = NA_real_),
-                aes(x = x, y = y, shape = "* Did not converge"),
-                inherit.aes = FALSE, na.rm = TRUE, key_glyph = "blank"
+                aes(x = x, y = y, shape = "Did not converge"),
+                inherit.aes = FALSE, na.rm = TRUE,
+                fill = "white", colour = "grey50", size = 3.2
             ) +
             scale_y_discrete(labels = hz_label_stars) +
             scale_fill_manual(
@@ -645,8 +648,8 @@ if (length(shapley_objs) == 0) {
             ) +
             scale_shape_manual(
                 name = NULL,
-                values = c("* Did not converge" = 19),
-                labels = c("* Did not converge" = "<i>&#42; Did not converge</i>")
+                values = c("Did not converge" = 22),
+                labels = c("Did not converge" = "<i>Did not converge</i>")
             ) +
             guides(
                 fill = guide_legend(order = 1),
@@ -654,9 +657,9 @@ if (length(shapley_objs) == 0) {
             ) +
             labs(
                 x = "Median Shapley share of total averted burden (%)", y = NULL,
-                title = plot_title,
-                subtitle = "Shapley shares sum to exactly 100% of the total averted burden for every posterior draw",
-                caption = stack_caption
+                title = NULL,
+                subtitle = NULL,
+                caption = NULL
             ) +
             #theme_bw (not theme_minimal) because element_markdown on axis.text.y
             #renders correctly under theme_bw + ggplot2 4.0 but is silently
@@ -664,23 +667,21 @@ if (length(shapley_objs) == 0) {
             #reproduce the previous minimal-with-box look. Set the two axis-text
             #children directly (not the parent axis.text) - setting the parent
             #also re-breaks the markdown child.
-            theme_bw(base_family = "Helvetica", base_size = 12) +
+            theme_bw(base_family = "Helvetica", base_size = 13) +
             theme(
                 panel.grid       = element_blank(),
                 panel.background = element_rect(fill = "white", colour = "grey70"),
                 panel.border     = element_rect(fill = NA, colour = "grey70", linewidth = 0.5),
                 plot.background  = element_rect(fill = "white", colour = NA),
-                axis.text.x      = element_text(colour = "black"),
-                axis.text.y      = element_markdown(colour = "black"),
-                axis.title       = element_text(colour = "black"),
+                axis.text.x      = element_text(colour = "black", size = 12),
+                axis.text.y      = element_markdown(colour = "black", size = 12),
+                axis.title       = element_text(colour = "black", size = 14),
                 axis.ticks.x     = element_line(colour = "grey40"),
                 axis.ticks.y     = element_blank(),
-                plot.title       = element_text(face = "bold", size = 15),
-                plot.subtitle    = element_text(size = 9.5, colour = "grey40"),
-                plot.caption     = element_text(size = 7.5, colour = "grey40", hjust = 0),
-                legend.text      = element_markdown(),
-                #no key background box - so the text-only "* Did not converge"
-                #note shows no empty swatch (coloured glyphs are unaffected)
+                legend.title     = element_text(size = 13),
+                legend.text      = element_markdown(size = 12),
+                #no key background box - so the "Did not converge" white-square
+                #swatch sits on the plain legend background (coloured glyphs unaffected)
                 legend.key       = element_blank(),
                 legend.position  = "right"
             )
@@ -693,17 +694,17 @@ if (length(shapley_objs) == 0) {
     #Deaths CTC shares reach ~101% median (104% whisker) in Goma, so the right
     #limit must clear the widest numeric label - a hard 100/110 clip truncates
     #the "101% (98 to ...)" annotation. Left kept at -30 to match the cases plot.
-    p_forest_deaths <- build_shapley_forest_plot("deaths", "Shapley contribution of individual interventions - Deaths", xlim_clip = c(-30, 130))
+    p_forest_deaths <- build_shapley_forest_plot("deaths", "Shapley contribution of individual interventions - Deaths", xlim_clip = c(-30, 150))
     ggsave(file.path(FIG_DIR, "shapley_forest_deaths.png"), p_forest_deaths, width = 12, height = 10, dpi = 600)
     ggsave(file.path(FIG_DIR, "shapley_forest_deaths.pdf"), p_forest_deaths, width = 12, height = 10)
 
     p_stacked_cases <- build_shapley_stacked_plot("cases", "Relative contribution (Shapley) by health zone - Cases")
-    ggsave(file.path(FIG_DIR, "shapley_stacked_cases.png"), p_stacked_cases, width = 10, height = 7, dpi = 600)
-    ggsave(file.path(FIG_DIR, "shapley_stacked_cases.pdf"), p_stacked_cases, width = 10, height = 7)
+    ggsave(file.path(FIG_DIR, "shapley_stacked_cases.png"), p_stacked_cases, width = 12, height = 7, dpi = 600)
+    ggsave(file.path(FIG_DIR, "shapley_stacked_cases.pdf"), p_stacked_cases, width = 12, height = 7)
 
     p_stacked_deaths <- build_shapley_stacked_plot("deaths", "Relative contribution (Shapley) by health zone - Deaths")
-    ggsave(file.path(FIG_DIR, "shapley_stacked_deaths.png"), p_stacked_deaths, width = 10, height = 7, dpi = 600)
-    ggsave(file.path(FIG_DIR, "shapley_stacked_deaths.pdf"), p_stacked_deaths, width = 10, height = 7)
+    ggsave(file.path(FIG_DIR, "shapley_stacked_deaths.png"), p_stacked_deaths, width = 12, height = 7, dpi = 600)
+    ggsave(file.path(FIG_DIR, "shapley_stacked_deaths.pdf"), p_stacked_deaths, width = 12, height = 7)
 
     cat("\nShapley figures saved to:\n")
     cat("  ", file.path(FIG_DIR, "shapley_forest_cases.png"), "\n")

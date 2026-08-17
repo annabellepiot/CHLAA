@@ -441,7 +441,6 @@ small_plots <- lapply(other_hz, function(hz) {
   )
   is_failed <- hz %in% failed_fits
   lab <- hz_title(hz)
-  if (is_failed) lab <- paste0(lab, " *")
   plot_small(d$fit_cases, d$observed, intv, lab, failed = is_failed)
 })
 names(small_plots) <- other_hz
@@ -451,27 +450,24 @@ names(small_plots) <- other_hz
 # Bumbu (3,1), Kokolo (3,2), Nyiragongo (3,3), empty (3,4).
 non_failed_hz <- setdiff(other_hz, failed_fits) # 8 zones, alphabetical
 
-# "* Did not converge" note lives INSIDE the empty bottom-right cell so it
-# sits alongside the Nyiragongo panel. Adjust note_x / note_y (0-1 within the
-# cell) to reposition; higher note_y = higher up.
-note_x <- 0.73
-note_y <- 0.2
-p_note <- ggplot() +
-  annotate("text",
-    x = note_x, y = note_y, label = "* Did not converge",
-    hjust = 1, vjust = 1, size = 6.6, family = "Helvetica", colour = "grey30"
-  ) +
-  scale_x_continuous(limits = c(0, 1), expand = c(0, 0)) +
-  scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
-  theme_void()
-
+# The bottom-right cell is left empty (a spacer). The did-not-converge fits
+# (Bumbu/Kokolo/Nyiragongo) are flagged instead by a vertical "Did not
+# converge" y-axis label on the left-most failed panel (Bumbu, added below).
 small_plots <- c(
   small_plots[non_failed_hz[1:8]], # slots 1-8  (rows 1-2)
   small_plots["bumbu"], # slot 9   (row3, col1)
   small_plots["kokolo"], # slot 10  (row3, col2)
   small_plots["nyiragongo"], # slot 11  (row3, col3)
-  list(p_note) # slot 12  (row3, col4) note in empty cell
+  list(patchwork::plot_spacer()) # slot 12  (row3, col4) empty cell
 )
+
+# Vertical "Did not converge" y-axis label on the Bumbu panel (bottom-left of
+# the three failed panels), so it reads as a row label for the failed fits.
+small_plots[["bumbu"]] <- small_plots[["bumbu"]] +
+  labs(y = "Did not converge") +
+  theme(axis.title.y = element_text(
+    angle = 90, size = 13, colour = "black", family = "Helvetica"
+  ))
 
 # ── compose with patchwork ───────────────────────────────────────────────
 # Layout: Kirotshe on top (spanning full width), small panels below in a grid
@@ -494,52 +490,61 @@ legend_data <- data.frame(
   stringsAsFactors = FALSE
 )
 
+# Laid out on the SAME 0-42 x-scale as the intervention legend below, with a
+# bold "Fit" category label at x = 4.5 (= intervention x_start - 0.8) so "Fit"
+# lines up directly under "Intervention" when the two strips are stacked.
 p_legend_strip <- ggplot() +
-  # 95% UI - medium ribbon + line
-  annotate("rect",
-    xmin = 9, xmax = 12, ymin = 0.3, ymax = 0.7,
-    fill = "#6baed6", alpha = 0.25
-  ) +
+  # Median - line only
   annotate("segment",
-    x = 9, xend = 12, y = 0.5, yend = 0.5,
-    colour = "#08519c", linewidth = 0.7
+    x = 5.3, xend = 7.3, y = 0.5, yend = 0.5,
+    colour = "#08519c", linewidth = 0.8
   ) +
   annotate("text",
-    x = 12.2, y = 0.5, label = "95% UI",
+    x = 7.5, y = 0.5, label = "Median",
     hjust = 0, size = 5.2, family = "Helvetica", colour = "black"
   ) +
   # 50% UI - darker ribbon + line
   annotate("rect",
-    xmin = 4.5, xmax = 7.5, ymin = 0.3, ymax = 0.7,
+    xmin = 13, xmax = 15, ymin = 0.3, ymax = 0.7,
     fill = "#6baed6", alpha = 0.45
   ) +
   annotate("segment",
-    x = 4.5, xend = 7.5, y = 0.5, yend = 0.5,
+    x = 13, xend = 15, y = 0.5, yend = 0.5,
     colour = "#08519c", linewidth = 0.7
   ) +
   annotate("text",
-    x = 7.7, y = 0.5, label = "50% UI",
+    x = 15.2, y = 0.5, label = "50% UI",
     hjust = 0, size = 5.2, family = "Helvetica", colour = "black"
   ) +
-  # Median - line only
+  # 95% UI - medium ribbon + line
+  annotate("rect",
+    xmin = 21, xmax = 23, ymin = 0.3, ymax = 0.7,
+    fill = "#6baed6", alpha = 0.25
+  ) +
   annotate("segment",
-    x = 0.5, xend = 3, y = 0.5, yend = 0.5,
-    colour = "#08519c", linewidth = 0.8
+    x = 21, xend = 23, y = 0.5, yend = 0.5,
+    colour = "#08519c", linewidth = 0.7
   ) +
   annotate("text",
-    x = 3.2, y = 0.5, label = "Median",
+    x = 23.2, y = 0.5, label = "95% UI",
     hjust = 0, size = 5.2, family = "Helvetica", colour = "black"
   ) +
   # Observed - grey line
   annotate("segment",
-    x = 15, xend = 17.5, y = 0.5, yend = 0.5,
+    x = 30, xend = 32, y = 0.5, yend = 0.5,
     colour = "grey50", linewidth = 0.6
   ) +
   annotate("text",
-    x = 17.7, y = 0.5, label = "Observed cases",
+    x = 32.2, y = 0.5, label = "Observed cases",
     hjust = 0, size = 5.2, family = "Helvetica", colour = "black"
   ) +
-  scale_x_continuous(limits = c(0, 23), expand = c(0, 0)) +
+  # "Fit" category label (matches "Intervention" format/position)
+  annotate("text",
+    x = 4.5, y = 0.5, label = "Fit",
+    hjust = 1, size = 4.7, family = "Helvetica", colour = "black",
+    fontface = "bold"
+  ) +
+  scale_x_continuous(limits = c(0, 42), expand = c(0, 0)) +
   scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
   theme_void() +
   theme(plot.margin = margin(0, 0, 0, 0))
@@ -594,18 +599,11 @@ p_intv_legend <- p_intv_legend +
   theme_void() +
   theme(plot.margin = margin(0, 0, 0, 0))
 
-# Stack: subtitle strip, kirotshe, intervention legend, facets
-composite <- p_legend_strip / p_kiro / p_intv_legend / small_grid +
-  plot_layout(heights = c(0.15, 2, 0.15, n_rows)) +
-  plot_annotation(
-    title = "Model fits and interventions by health zone",
-    theme = theme(
-      plot.title = element_text(
-        face = "bold", size = 20, hjust = 0.5,
-        family = "Helvetica"
-      )
-    )
-  )
+# Stack: kirotshe, intervention legend, fit legend, facets. The fit-legend strip
+# (Median / 50% UI / 95% UI / Observed) sits between the Intervention colour
+# legend and the small panels, with its "Fit" label aligned under "Intervention".
+composite <- p_kiro / p_intv_legend / p_legend_strip / small_grid +
+  plot_layout(heights = c(2, 0.15, 0.15, n_rows))
 
 # ── save ─────────────────────────────────────────────────────────────────
 out_path <- file.path(fig_dir, "model_fits_and_interventions.png")
