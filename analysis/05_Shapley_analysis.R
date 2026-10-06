@@ -505,8 +505,30 @@ if (length(shapley_objs) == 0) {
 
     ##---- Forest-plot figure (uncertainty, one facet per intervention) ----
 
+    #Legend key for the "Did not converge" note: a dashed line on a light shaded
+    #band, matching the grey DNC key in 02_02_scenario_analysis_all_HZs.R so the
+    #forest and excess figures read consistently when paired in the paper.
+    draw_key_fitted_ref <- function(data, params, size) {
+        grid::grobTree(
+            grid::rectGrob(gp = grid::gpar(fill = scales::alpha(data$colour, 0.18), col = NA)),
+            grid::segmentsGrob(0.05, 0.5, 0.95, 0.5,
+                gp = grid::gpar(col = data$colour, lwd = 2, lty = "dashed"))
+        )
+    }
+
     build_shapley_forest_plot <- function(var_name, plot_title, xlim_clip = NULL) {
         dat <- shap_dat %>% filter(variable == var_name)
+
+        #Non-converged zones (Nyiragongo/Bumbu/Kokolo): grey boxes (fill routed to
+        #a hidden "dnc_grey" key) and italic value/interval labels - mirrors the
+        #Kokolo treatment in 02_02_scenario_analysis_all_HZs.R.
+        dat <- dat %>%
+            mutate(
+                fill_key = ifelse(as.character(hz) %in% failed_hz_shapley,
+                                  "dnc_grey", as.character(intervention)),
+                lab_face = ifelse(as.character(hz) %in% failed_hz_shapley,
+                                  "italic", "plain")
+            )
 
         n_clipped <- 0
         if (!is.null(xlim_clip)) {
@@ -552,7 +574,7 @@ if (length(shapley_objs) == 0) {
             geom_vline(xintercept = 0, linetype = "dashed", colour = "grey40", linewidth = 0.6) +
             geom_blank(data = x_pad, aes(x = x, y = hz)) +
             geom_crossbar(
-                aes(x = share_pct_q0p5, xmin = share_pct_q0p25, xmax = share_pct_q0p75, fill = intervention),
+                aes(x = share_pct_q0p5, xmin = share_pct_q0p25, xmax = share_pct_q0p75, fill = fill_key),
                 orientation = "y", width = 0.65, alpha = 0.8, colour = "grey30",
                 linewidth = 0.3, middle.linewidth = 0.6
             ) +
@@ -561,13 +583,19 @@ if (length(shapley_objs) == 0) {
                 orientation = "y", width = 0.35, linewidth = 0.4, colour = "grey30"
             ) +
             geom_label(
-                aes(x = label_x, label = num_label, hjust = label_hjust),
+                aes(x = label_x, label = num_label, hjust = label_hjust, fontface = lab_face),
                 size = 3.0, family = "Helvetica", colour = "black",
                 fill = "white", linewidth = 0, label.padding = unit(0.12, "lines")
             ) +
             facet_wrap(~intervention, ncol = 2) +
-            scale_y_discrete(labels = hz_label) +
-            scale_fill_manual(values = intervention_colours, guide = "none") +
+            scale_y_discrete(labels = hz_label_stars) +
+            #No legend here (the interventions are the facet titles); the grey
+            #DNC box fill (dnc_grey) simply renders the Nyiragongo/Bumbu/Kokolo
+            #boxes grey.
+            scale_fill_manual(
+                values = c(intervention_colours, dnc_grey = "grey80"),
+                guide = "none"
+            ) +
             labs(
                 x = "Shapley share of total averted burden (%)",
                 y = NULL,
@@ -579,18 +607,23 @@ if (length(shapley_objs) == 0) {
         if (!is.null(xlim_clip)) p <- p + coord_cartesian(xlim = xlim_clip)
 
         p +
-            theme_minimal(base_family = "Helvetica", base_size = 13) +
+            #theme_bw (not theme_minimal) so the per-label markdown on axis.text.y
+            #(bold, bold-italic for the DNC zones) renders instead of being
+            #silently downgraded - same reason as the stacked-bar figure.
+            theme_bw(base_family = "Helvetica", base_size = 13) +
             theme(
                 panel.grid       = element_blank(),
                 panel.background = element_rect(fill = "white", colour = "grey70"),
                 panel.border     = element_rect(fill = NA, colour = "grey70", linewidth = 0.5),
                 plot.background  = element_rect(fill = "white", colour = NA),
+                strip.background = element_blank(),
                 strip.text       = element_text(face = "bold", size = 13, colour = "black"),
                 axis.text.x      = element_text(colour = "black", size = 12),
-                axis.text.y      = element_text(colour = "black", size = 12, face = "bold"),
+                axis.text.y      = element_markdown(colour = "black", size = 12),
                 axis.title       = element_text(colour = "black", size = 14),
                 axis.ticks.x     = element_line(colour = "grey40"),
                 axis.ticks.y     = element_blank(),
+                legend.position  = "none",
                 panel.spacing    = unit(1, "lines")
             )
     }
@@ -627,14 +660,15 @@ if (length(shapley_objs) == 0) {
         ggplot(dat, aes(x = share_pct_q0p5, y = hz, fill = fill_key)) +
             geom_col(width = 0.7, colour = "white", linewidth = 0.3, orientation = "y") +
             geom_vline(xintercept = 100, linetype = "dashed", colour = "grey40", linewidth = 0.5) +
-            #Invisible layer whose sole purpose is a legend note flagging the
-            #did-not-converge zones, shown as a white square swatch (pch 22 =
-            #filled square: white fill + grey border).
-            geom_point(
-                data = data.frame(x = NA_real_, y = NA_real_),
-                aes(x = x, y = y, shape = "Did not converge"),
-                inherit.aes = FALSE, na.rm = TRUE,
-                fill = "white", colour = "grey50", size = 3.2
+            #Invisible mapped layer that registers the grey "Did not converge"
+            #key (dashed line on a light band, via draw_key_fitted_ref) - the
+            #same key style used in scenario_excess_all_hz.png. inherit.aes = FALSE
+            #so it does not pick up the bar `fill` aesthetic.
+            geom_vline(
+                data = data.frame(x = NA_real_),
+                aes(xintercept = x, colour = "Did not converge"),
+                inherit.aes = FALSE, linetype = "dashed", linewidth = 0.8,
+                key_glyph = draw_key_fitted_ref, na.rm = TRUE
             ) +
             scale_y_discrete(labels = hz_label_stars) +
             scale_fill_manual(
@@ -646,14 +680,14 @@ if (length(shapley_objs) == 0) {
                 breaks = names(stacked_colours), #hide the "(dnc)" keys from the legend
                 name = "Intervention"
             ) +
-            scale_shape_manual(
+            scale_colour_manual(
                 name = NULL,
-                values = c("Did not converge" = 22),
+                values = c("Did not converge" = "grey60"),
                 labels = c("Did not converge" = "<i>Did not converge</i>")
             ) +
             guides(
-                fill = guide_legend(order = 1),
-                shape = guide_legend(order = 2)
+                fill = guide_legend(order = 1, nrow = 1),
+                colour = guide_legend(order = 2)
             ) +
             labs(
                 x = "Median Shapley share of total averted burden (%)", y = NULL,
@@ -680,10 +714,9 @@ if (length(shapley_objs) == 0) {
                 axis.ticks.y     = element_blank(),
                 legend.title     = element_text(size = 13),
                 legend.text      = element_markdown(size = 12),
-                #no key background box - so the "Did not converge" white-square
-                #swatch sits on the plain legend background (coloured glyphs unaffected)
                 legend.key       = element_blank(),
-                legend.position  = "right"
+                #one row across the top (bars widen now the legend is off the side)
+                legend.position  = "top"
             )
     }
 

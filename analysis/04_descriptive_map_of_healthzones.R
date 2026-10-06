@@ -367,7 +367,7 @@ fill_scale <- scale_fill_gradientn(
     colours = ylgnbu_mid, name = "Cumulative attack rate\n(per 100,000)",
     labels = comma, limits = c(0, max(zones$ar_100k, na.rm = TRUE)),
     guide = guide_colourbar(
-        barwidth = 15, barheight = 1.0, title.position = "top",
+        barwidth = 18, barheight = 2.0, title.position = "top",
         title.hjust = 0.5
     )
 )
@@ -430,21 +430,26 @@ p <- ggplot() +
     ) +
     fill_scale +
     coord_sf(
-        xlim = c(-30, 90), ylim = c(2, 96), expand = FALSE,
+        #ylim lower raised from 2 to 4 to crop the empty strip below the lowest
+        #inset circles (Kinshasa/Maniema bottoms ~y=6); ggsave height dropped to
+        #match the new aspect so no letterbox white is reintroduced.
+        xlim = c(-30, 90), ylim = c(4, 97), expand = FALSE,
         crs = CANVAS_CRS, datum = NA
     ) +
     theme_void(base_size = 13, base_family = FONT) +
     theme(
-        legend.title = element_text(size = 14),
-        legend.text = element_text(size = 13),
+        legend.title = element_text(size = 19),
+        legend.text = element_text(size = 16),
         legend.position = "inside",
-        legend.position.inside = c(0.575, 0.44),
+        legend.position.inside = c(0.14, 0.89), #top-left corner
         legend.direction = "horizontal",
         legend.background = element_rect(fill = alpha("white", 0.7), colour = NA),
         plot.margin = margin(8, 8, 8, 8)
     )
 
 out_png <- file.path(fig_dir, "healthzone_attack_rate_map_2025.png")
-ggsave(out_png, p, width = 15, height = 12, dpi = 600, bg = "white")
+#height 12 -> 11.6 to match the tightened canvas aspect (xrange 120 / yrange 93)
+#so the crop does not reintroduce top/bottom letterbox whitespace.
+ggsave(out_png, p, width = 15, height = 11.6, dpi = 600, bg = "white")
 cat("Saved map to:", out_png, "\n")
 cat("Saved table to:", file.path(out_dir, "healthzone_attack_rate_2025.csv"), "\n")
