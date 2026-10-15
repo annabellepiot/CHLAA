@@ -30,8 +30,8 @@ library(readr)
 library(purrr)
 library(posterior)
 
-fig_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures"
-data_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/data"
+fig_dir <- "figures"
+data_dir <- "analysis/data"
 dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
 
 # Load Nyiragongo data ----

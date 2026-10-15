@@ -13,14 +13,14 @@ library(ggplot2)
 library(dplyr)
 
 #Directory for saving figures
-fig_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/CHLAA/figures"
+fig_dir <- "figures"
 
 # Load fitted model ----
 #The health-economic workflow uses the same saved Kirotshe pMCMC fit as the
 #scenario vignette. We first check the fitted weekly case curve, then use the
 #posterior-median parameter set for scenario simulation and costing.
 
-data_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/data"
+data_dir <- "analysis/data"
 fit_obj <- readRDS(file.path(data_dir, "kirotshe_particle_fit.rds"))
 
 fit <- fit_obj$fit

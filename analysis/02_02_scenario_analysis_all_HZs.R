@@ -66,9 +66,9 @@ seed_state <- function(E0, p) {
 
 #---- Setup ----
 
-data_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/data"
-output_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/output"
-fig_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures"
+data_dir <- "analysis/data"
+output_dir <- "output"
+fig_dir <- "figures"
 rds_dir <- file.path(fig_dir, ".rds files")
 tables_dir <- file.path(fig_dir, "tables")
 
@@ -492,6 +492,11 @@ run_scenarios_hz <- function(hz_name,
 
 #---- Main Execution ----
 
+#Skipped when a hipercow environment sources this file (analysis/hipercow_setup.R
+#sets chlaa.skip_main), so tasks get the functions above without running
+#the pipeline. Rscript / interactive use is unchanged.
+if (!isTRUE(getOption("chlaa.skip_main"))) {
+
 args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) > 0) {
@@ -599,6 +604,13 @@ if (length(args) > 0) {
         }
     }
 }
+
+} #end chlaa.skip_main guard
+
+#Cross-HZ aggregation, built from the cached per-HZ .rds files. Skipped
+#inside hipercow per-HZ tasks; run it once all tasks have finished with
+#  options(chlaa.skip_main = TRUE); source("analysis/02_02_scenario_analysis_all_HZs.R")
+if (!isTRUE(getOption("chlaa.skip_aggregate"))) {
 
 #=========================================================================
 #Composite scenario figure across all health zones
@@ -1523,3 +1535,5 @@ if (length(contribution_objs) == 0) {
     cat("  ", file.path(fig_dir, "intervention_contribution_deaths.png"), "\n")
 }
 
+
+} #end chlaa.skip_aggregate guard

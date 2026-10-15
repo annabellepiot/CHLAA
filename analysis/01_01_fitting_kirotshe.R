@@ -18,7 +18,7 @@ library(purrr)
 library(coda)
 
 #Directory for saving figures
-fig_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures"
+fig_dir <- "figures"
 
 # File path helpers ----
 #These utilities manage file paths for locating data files within the
@@ -52,7 +52,7 @@ extdata_file <- function(...) {
 
 hz_name <- "kirotshe"
 
-data_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/data"
+data_dir <- "analysis/data"
 
 kirotshe_meta <- read_csv(
   file.path(data_dir, "hz_parameters.csv"),

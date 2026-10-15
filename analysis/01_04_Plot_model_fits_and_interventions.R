@@ -15,7 +15,7 @@ library(readr)
 library(patchwork)
 
 # ── paths ────────────────────────────────────────────────────────────────
-base_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA"
+base_dir <- "."
 data_dir <- file.path(base_dir, "analysis", "data")
 rds_dir <- file.path(base_dir, "figures", ".rds files")
 fig_dir <- file.path(base_dir, "figures")

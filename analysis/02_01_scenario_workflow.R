@@ -13,7 +13,7 @@ library(ggplot2)
 library(dplyr)
 
 #Directory for saving figures
-fig_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures"
+fig_dir <- "figures"
 dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
 
 # Load the fitted model ----
@@ -21,7 +21,7 @@ dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
 #using as the baseline. This reads the pre-fitted stochastic pMCMC model for
 #Kirotshe from package data rather than refitting.
 
-data_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/data"
+data_dir <- "analysis/data"
 fit_obj <- readRDS(file.path(data_dir, "kirotshe_particle_fit.rds"))
 
 fit <- fit_obj$fit

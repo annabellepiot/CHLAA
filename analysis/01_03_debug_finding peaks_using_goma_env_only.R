@@ -15,8 +15,8 @@ library(dplyr)
 library(tidyr)
 library(purrr)
 
-fig_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures_experiment_goma_env"
-data_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/data"
+fig_dir <- "figures_experiment_goma_env"
+data_dir <- "analysis/data"
 dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
 
 hz_name <- "goma"

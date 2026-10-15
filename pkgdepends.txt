@@ -1,0 +1,6 @@
+repo::https://mrc-ide.r-universe.dev
+annabellepiot/CHLAA
+tidyverse
+posterior
+ggtext
+scales

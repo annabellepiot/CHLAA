@@ -47,7 +47,7 @@ suppressMessages({
     library(ggtext)
 })
 
-FIG_DIR <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures"
+FIG_DIR <- "figures"
 RDS_DIR <- file.path(FIG_DIR, ".rds files")
 TAB_DIR <- file.path(FIG_DIR, "tables")
 
@@ -343,6 +343,11 @@ compute_shapley_hz <- function(hz_name, n_draws = N_DRAWS, n_part = N_PART, burn
 
 ##---- Main Execution --------------------------------------------------
 
+#Skipped when a hipercow environment sources this file (analysis/hipercow_setup.R
+#sets chlaa.skip_main), so tasks get the functions above without running
+#the pipeline. Rscript / interactive use is unchanged.
+if (!isTRUE(getOption("chlaa.skip_main"))) {
+
 args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) > 0) {
@@ -420,6 +425,13 @@ if (length(args) > 0) {
         cat("Failed HZs:", paste(failed_now, collapse = ", "), "\n")
     }
 }
+
+} #end chlaa.skip_main guard
+
+#Cross-HZ aggregation, built from the cached per-HZ .rds files. Skipped
+#inside hipercow per-HZ tasks; run it once all tasks have finished with
+#  options(chlaa.skip_main = TRUE); source("analysis/05_Shapley_analysis.R")
+if (!isTRUE(getOption("chlaa.skip_aggregate"))) {
 
 ##=========================================================================
 ##Aggregate Shapley figures across all health zones
@@ -745,3 +757,5 @@ if (length(shapley_objs) == 0) {
     cat("  ", file.path(FIG_DIR, "shapley_stacked_cases.png"), "\n")
     cat("  ", file.path(FIG_DIR, "shapley_stacked_deaths.png"), "\n")
 }
+
+} #end chlaa.skip_aggregate guard

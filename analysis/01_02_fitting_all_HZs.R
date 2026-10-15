@@ -25,9 +25,9 @@ library(posterior)
 
 #---- Setup ----
 
-data_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/analysis/data"
-output_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/output"
-fig_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures"
+data_dir <- "analysis/data"
+output_dir <- "output"
+fig_dir <- "figures"
 rds_dir <- file.path(fig_dir, ".rds files")
 tables_dir <- file.path(fig_dir, "tables")
 
@@ -1007,6 +1007,11 @@ fit_hz <- function(hz_name,
 
 #---- Main Execution ----
 
+#Skipped when a hipercow environment sources this file (analysis/hipercow_setup.R
+#sets chlaa.skip_main), so tasks get the functions above without running
+#the pipeline. Rscript / interactive use is unchanged.
+if (!isTRUE(getOption("chlaa.skip_main"))) {
+
 args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) > 0) {
@@ -1095,3 +1100,5 @@ if (length(args) > 0) {
         print(r0_all, width = Inf)
     }
 }
+
+} #end chlaa.skip_main guard

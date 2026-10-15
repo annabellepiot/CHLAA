@@ -35,7 +35,7 @@ suppressMessages({
 sf_use_s2(FALSE) #planar ops are fine at this scale and avoid s2 edge cases
 
 ##---- Paths ---------------------------------------------------------
-base_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA"
+base_dir <- "."
 data_dir <- file.path(base_dir, "analysis", "data")
 fig_dir <- file.path(base_dir, "figures")
 out_dir <- file.path(base_dir, "analysis", "output")

@@ -16,3 +16,5 @@
 ^Meta$
 ^vignettes_src$
 ^vignettes/.*_full\.html$
+^pkgdepends\.txt$
+^hipercow$

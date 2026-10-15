@@ -21,8 +21,8 @@ library(chlaa)
 
 #---- Setup ----
 
-rds_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures/.rds files"
-fig_dir <- "/rds/general/user/acp25/home/MIMIC/Clean_data/Proj_2/CHLAA/figures"
+rds_dir <- "figures/.rds files"
+fig_dir <- "figures"
 tab_dir <- file.path(fig_dir, "tables")
 
 dir.create(tab_dir, showWarnings = FALSE, recursive = TRUE)

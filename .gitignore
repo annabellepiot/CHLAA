@@ -54,3 +54,6 @@ analysis/data/
 # Generated output and figures
 output/
 figures/
+
+# hipercow task store / cluster library
+hipercow/
