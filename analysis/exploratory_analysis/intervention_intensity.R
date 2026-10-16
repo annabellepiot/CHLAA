@@ -18,7 +18,13 @@
 #    are spread evenly over the preceding run of missing weeks (if any).
 # 3. Exposure: weekly_amount (deliveries) -> decaying stock
 #    S_t = S_{t-1} exp(-1/tau) + x_t (missing weeks inside the reporting period
-#    count as no delivery); level / people_reached -> as reported. Each series is
+#    count as no delivery); THIS IS THE KEY EDIT:
+#Delivery counts become a stock that decays with a 4-week time constant: each week, the old stock shrinks and the new deliveries are added on top.
+# A missing week inside the reporting period counts as no delivery that week.
+# Levels (level, level_probable) carry the last reported value forward over unreported
+# weeks inside the reporting period. People reached are used as reported.
+# each indicator is then divided by its own maximum in that HZ. So 1 means "the most this HZ ever did on this indicator", which puts indicators with different units on the same scale.
+# level -> last value carried forward; people_reached -> as reported. Each series is
 #    scaled to 0-1 by its maximum within the HZ (1 = that HZ's peak activity).
 # 4. Group intensity: mean of the scaled indicator exposures each week, linearly
 #    interpolated over weeks with no indicator reported, rescaled to max 1 within
@@ -100,8 +106,15 @@ spread_spikes <- function(v, mult) {
     list(v = v, flag = flag)
 }
 
-# deliveries -> decaying stock over the reporting period; other types as reported
+# deliveries -> decaying stock over the reporting period; levels -> last reported
+# value carried forward over unreported weeks within the reporting period (a level
+# stays in place until the next report); people reached -> as reported
 make_exposure <- function(v, type, tau) {
+    if (type %in% c("level", "level_probable")) {
+        rep_wk <- which(!is.na(v))
+        for (t in min(rep_wk):max(rep_wk)) if (is.na(v[t])) v[t] <- v[t - 1]
+        return(v)
+    }
     if (type != "weekly_amount") {
         return(v)
     }
@@ -190,19 +203,29 @@ for (h in sort(unique(weekly$hz))) {
         filter(any(intensity > 0)) %>%
         ungroup()
     if (nrow(w) == 0) next
+    # points only for weeks with a value recorded in the spreadsheet
     pts <- expo %>%
-        filter(hz == h, group %in% w$group, !is.na(exposure)) %>%
+        filter(hz == h, group %in% w$group, !is.na(value), !is.na(exposure)) %>%
+        mutate(date = week1_date + 7 * (week - 1))
+    # computed decaying stock of delivery indicators (every week of the reporting period)
+    stock <- expo %>%
+        filter(hz == h, group %in% w$group, unit_type == "weekly_amount", !is.na(exposure)) %>%
         mutate(date = week1_date + 7 * (week - 1))
     win <- windows %>% filter(hz == h, group %in% w$group)
     lv <- intersect(group_levels, unique(w$group))
     w$group <- factor(w$group, levels = lv)
     pts$group <- factor(pts$group, levels = lv)
+    stock$group <- factor(stock$group, levels = lv)
     win$group <- factor(win$group, levels = lv)
 
     p <- ggplot(w, aes(date)) +
         geom_rect(
             data = win, aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf, fill = group),
             inherit.aes = FALSE, alpha = 0.12
+        ) +
+        geom_line(
+            data = stock, aes(y = exposure, group = id), colour = "grey45",
+            linewidth = 0.35
         ) +
         geom_step(aes(y = intensity, colour = group), linewidth = 0.9, direction = "mid") +
         geom_point(data = pts, aes(y = exposure, shape = id), size = 1.4, colour = "grey20", alpha = 0.7) +
@@ -216,8 +239,10 @@ for (h in sort(unique(weekly$hz))) {
             title = paste0(h, " \u2013 intervention intensity c(t)"),
             x = NULL, y = "Relative intensity (0-1)", shape = "Indicator",
             caption = paste0(
-                "Points: indicator exposure scaled to its HZ max (deliveries as decaying stock, tau = ", tau,
-                " wk). Line: group mean, rescaled to max 1.\n",
+                "Points: weeks with a value recorded in the spreadsheet, scaled to the indicator's HZ max ",
+                "(deliveries shown as their decaying stock, tau = ", tau, " wk).\n",
+                "Thin grey line: computed stock of each delivery indicator (blank weeks = no delivery). ",
+                "Coloured line: group mean, rescaled to max 1.\n",
                 "Shaded: model window (hz_parameters.csv). 0 before first activity and after last report."
             )
         ) +

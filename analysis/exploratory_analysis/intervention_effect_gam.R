@@ -1,5 +1,5 @@
 # Does an intervention change the trajectory of weekly cholera cases?
-# Hierarchical GAM (partial pooling across HZs; Pedersen et al. 2019, model "GS"),
+# Hierarchical GAM (partial pooling across HZs),
 # one model per intervention group x lag:
 #
 #   cases ~ s(time_index)                              global baseline epidemic curve
